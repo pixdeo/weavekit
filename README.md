@@ -34,8 +34,7 @@ This is an open source project. Issues and pull requests are welcome.
   checks run headless in a couple of seconds; there is no browser needed.
 - `npm run check && npm run check:layout` must pass before a pull request.
 
-Good first issues live in the [Roadmap](#roadmap) section: each item is scoped
-so it can land on its own.
+[TODO.md](TODO.md) lists what is missing and where to start on each item.
 
 ## Getting started
 
@@ -329,7 +328,8 @@ the demo publishes them as `window.canvasUIStats` / `window.canvasUIHistory`.
 
 ## Roadmap
 
-In rough order of value:
+In rough order of value. [TODO.md](TODO.md) has the full list, including the
+known gaps behind each item.
 
 1. **Animation.** Give views structural identity (plus an explicit `.id()`),
    diff rects between frames, interpolate. Momentum scrolling falls out of it.

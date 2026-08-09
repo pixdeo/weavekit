@@ -7,6 +7,7 @@ import {
   Spacer,
   Text,
   VStack,
+  clamp,
   component,
   createCanvasBackend,
   createDomBackend,
@@ -26,6 +27,10 @@ const current = signal(0)
 const revision = signal(0)
 const navScroll = signal(0)
 const previewScroll = signal(0)
+const sidebarWidth = signal(210)
+
+const SIDEBAR_MIN = 150
+const SIDEBAR_MAX = 360
 
 /** Edited source per example id. Absent means "still the original". */
 const edits = new Map<string, string>()
@@ -97,13 +102,27 @@ const sidebar = (): View =>
       ScrollView({ y: navScroll }, VStack({ spacing: 2, align: 'leading' }, ...examples.map(navRow))),
     )
       .padding(10)
-      .frame(210, null)
+      .frame(sidebarWidth(), null)
       .background(Rectangle().fill('#151518')),
   )
 
-/** Cursor-only region: a 7px grab strip drawn as a 1px rule. */
-const divider = (): View =>
-  Rectangle().fill('#232327').frame(1, null).padding({ l: 3, r: 3 }).cursor('col-resize')
+/** A 7px grab strip drawn as a 1px rule; dragging it resizes the sidebar. */
+const divider = (): View => {
+  let from = 0
+  return Rectangle()
+    .fill('#232327')
+    .frame(1, null)
+    .padding({ l: 3, r: 3 })
+    .onDrag(
+      {
+        onStart: () => {
+          from = sidebarWidth()
+        },
+        onMove: (d) => sidebarWidth.set(clamp(from + d.tx, SIDEBAR_MIN, SIDEBAR_MAX)),
+      },
+      'col-resize',
+    )
+}
 
 const panelLabel = (text: string): View =>
   Text(text).font({ size: 10, weight: 700 }).foreground('#52525b')

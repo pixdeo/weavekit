@@ -7,6 +7,8 @@ export { component, ComponentCache } from './core/component'
 export type { CacheStats } from './core/component'
 export type {
   Align,
+  Drag,
+  DragHandlers,
   DrawOp,
   Font,
   Hit,
@@ -16,6 +18,7 @@ export type {
   ScrollRegion,
   Size,
 } from './core/types'
+export { clamp } from './core/types'
 
 export { Text, Code, MONO } from './views/text'
 export type { TextOpts } from './views/text'

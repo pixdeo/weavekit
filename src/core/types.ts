@@ -79,10 +79,41 @@ export type DrawShape =
  */
 export type DrawOp = DrawShape & { clip?: Rect }
 
+/**
+ * One sample of a drag, in root coordinates.
+ *
+ * `dx`/`dy` are the step since the previous sample; `tx`/`ty` are the total
+ * since the drag began. Prefer the totals: they are immune to a dropped or
+ * coalesced move, so a handler that maps them onto state captured at
+ * `onStart` never accumulates error.
+ */
+export interface Drag {
+  x: number
+  y: number
+  dx: number
+  dy: number
+  tx: number
+  ty: number
+  startX: number
+  startY: number
+}
+
+export interface DragHandlers {
+  onStart?(d: Drag): void
+  onMove?(d: Drag): void
+  /** Also fires when the gesture is cancelled, so it is safe to clean up here. */
+  onEnd?(d: Drag): void
+}
+
 export interface Hit {
   rect: Rect
   /** Absent for cursor-only regions such as resize handles. */
   handler?: () => void
+  /**
+   * Set to follow the pointer after it leaves this rect. The gesture owns the
+   * pointer until it is released, so nothing else can steal it mid-drag.
+   */
+  drag?: DragHandlers
   /** CSS cursor shown while the pointer is inside this rect. */
   cursor?: string
   clip?: Rect

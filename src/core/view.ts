@@ -1,5 +1,5 @@
 import type { Ctx } from './ctx'
-import type { Font, Insets, Proposal, Rect, Size } from './types'
+import type { Drag, DragHandlers, Font, Insets, Proposal, Rect, Size } from './types'
 import { concrete, inset, insets, shrink } from './types'
 
 /**
@@ -54,6 +54,18 @@ export abstract class View {
 
   onTap(handler: () => void, cursor = 'pointer'): View {
     return new TapMod(this, handler, cursor)
+  }
+
+  /**
+   * Follows the pointer from a press inside this view until it is released,
+   * wherever it travels — the view keeps the pointer for the whole gesture.
+   *
+   * Pass a function for move-only drags, or the three handlers when the
+   * gesture needs to snapshot state at `onStart` and settle at `onEnd`. Read
+   * `tx`/`ty` against that snapshot rather than accumulating `dx`/`dy`.
+   */
+  onDrag(handlers: DragHandlers | ((d: Drag) => void), cursor = 'grab'): View {
+    return new DragMod(this, typeof handlers === 'function' ? { onMove: handlers } : handlers, cursor)
   }
 
   /** Cursor feedback without a tap handler — resize handles, drag surfaces. */
@@ -265,6 +277,27 @@ class TapMod extends View {
     // Pushed before the child so nested handlers land later in the list and
     // win when the hit test scans back-to-front.
     ctx.addHit({ rect, handler: this.handler, cursor: this.cursorName })
+    this.child.place(rect, ctx)
+  }
+}
+
+class DragMod extends View {
+  constructor(
+    private child: View,
+    private handlers: DragHandlers,
+    private cursorName: string,
+  ) {
+    super()
+  }
+
+  measure(p: Proposal, ctx: Ctx): Size {
+    return this.child.measure(p, ctx)
+  }
+
+  place(rect: Rect, ctx: Ctx): void {
+    // Before the child, for the same reason as a tap: nested gestures land
+    // later in the list and win the back-to-front scan.
+    ctx.addHit({ rect, drag: this.handlers, cursor: this.cursorName })
     this.child.place(rect, ctx)
   }
 }

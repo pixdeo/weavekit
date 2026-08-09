@@ -11,6 +11,7 @@ export function createDomBackend(outline = false): Backend {
   root.style.overflow = 'hidden'
   root.style.width = '100%'
   root.style.height = '100%'
+  root.style.touchAction = 'none'
 
   const box = (rect: DrawOp['rect']): HTMLDivElement => {
     const d = document.createElement('div')
@@ -70,15 +71,34 @@ export function createDomBackend(outline = false): Backend {
     onPointerDown(cb) {
       root.addEventListener('pointerdown', (e) => {
         const r = root.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top)
+        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
       })
     },
 
     onPointerMove(cb) {
       root.addEventListener('pointermove', (e) => {
         const r = root.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top)
+        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
       })
+    },
+
+    onPointerUp(cb) {
+      const fire = (e: PointerEvent): void => {
+        const r = root.getBoundingClientRect()
+        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
+      }
+      root.addEventListener('pointerup', fire)
+      root.addEventListener('pointercancel', fire)
+    },
+
+    // Capture goes on the container, not the op elements — `draw` replaces
+    // those every frame and would drop the capture with them.
+    capturePointer(id) {
+      root.setPointerCapture(id)
+    },
+
+    releasePointer(id) {
+      if (root.hasPointerCapture(id)) root.releasePointerCapture(id)
     },
 
     onWheel(cb) {

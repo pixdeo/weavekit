@@ -191,6 +191,9 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     onPointerMove: (cb: (x: number, y: number) => void) => {
       move = cb
     },
+    onPointerUp: () => {},
+    capturePointer: () => {},
+    releasePointer: () => {},
     onWheel: () => {},
     setCursor: (c: string) => {
       cursor = c
@@ -254,6 +257,9 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     },
     onPointerDown: () => {},
     onPointerMove: () => {},
+    onPointerUp: () => {},
+    capturePointer: () => {},
+    releasePointer: () => {},
     onWheel: () => {},
     setCursor: () => {},
     destroy: () => {},
@@ -311,6 +317,9 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     draw: () => {},
     onPointerDown: () => {},
     onPointerMove: () => {},
+    onPointerUp: () => {},
+    capturePointer: () => {},
+    releasePointer: () => {},
     onWheel: () => {},
     setCursor: () => {},
     destroy: () => {},
@@ -458,6 +467,154 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   check('a syntax error is reported, not thrown', broken.ok, false)
   const notAView = compileView('42')
   check('a non-view result is reported', notAView.ok, false)
+}
+
+/* 13. Pointer capture: a drag keeps the pointer after it leaves the view, and
+       keeps the handler it started with even as the tree rebuilds under it. */
+{
+  const { mount } = await import('../core/mount')
+  const { signal } = await import('../core/signal')
+
+  let cursor = ''
+  let move: (x: number, y: number, id: number) => void = () => {}
+  let down: (x: number, y: number, id: number) => void = () => {}
+  let up: (x: number, y: number, id: number) => void = () => {}
+  let captured: number | null = null
+
+  const backend = {
+    el: {},
+    resize: () => {},
+    draw: () => {},
+    onPointerDown: (cb: typeof down) => {
+      down = cb
+    },
+    onPointerMove: (cb: typeof move) => {
+      move = cb
+    },
+    onPointerUp: (cb: typeof up) => {
+      up = cb
+    },
+    capturePointer: (id: number) => {
+      captured = id
+    },
+    releasePointer: () => {
+      captured = null
+    },
+    onWheel: () => {},
+    setCursor: (c: string) => {
+      cursor = c
+    },
+    destroy: () => {},
+  }
+  const host = { clientWidth: 300, clientHeight: 100, replaceChildren: () => {} }
+
+  // A resizable divider: the width the drag started from is snapshotted in
+  // `onStart`, and every move maps the gesture's total onto it.
+  const width = signal(100)
+  const log: string[] = []
+
+  const mounted = mount(
+    host as unknown as HTMLElement,
+    backend as unknown as Parameters<typeof mount>[1],
+    () => {
+      let from = 0
+      return HStack(
+        { spacing: 0 },
+        Rectangle().fill('#111').frame(width(), null),
+        Rectangle()
+          .fill('#222')
+          .frame(10, null)
+          .onDrag(
+            {
+              onStart: () => {
+                from = width()
+                log.push('start')
+              },
+              onMove: (d) => width.set(from + d.tx),
+              onEnd: () => log.push('end'),
+            },
+            'col-resize',
+          ),
+        Rectangle().fill('#333').expand(),
+      )
+    },
+  )
+
+  move(105, 50, 1)
+  check('the divider shows its cursor on hover', cursor, 'col-resize')
+
+  down(105, 50, 1)
+  check('pressing the divider captures the pointer', captured, 1)
+  check('onStart fired once', log, ['start'])
+
+  move(145, 50, 1)
+  check('the drag moved the divider', width(), 140)
+
+  // Past the divider's own rect, and past the whole element. Without capture
+  // both of these would be lost.
+  move(400, 50, 1)
+  check('the drag survives leaving the view', width(), 395)
+  check('the gesture keeps its cursor off-view', cursor, 'col-resize')
+
+  // A different pointer must not steer someone else's gesture.
+  move(20, 50, 2)
+  check('another pointer does not drive the drag', width(), 395)
+
+  up(400, 50, 1)
+  check('release frees the pointer', captured, null)
+  check('onEnd fired once', log, ['start', 'end'])
+
+  // `from` was read once at onStart, so a second drag starts from the new
+  // width rather than replaying the first one.
+  down(400, 50, 1)
+  move(380, 50, 1)
+  up(380, 50, 1)
+  check('a second drag starts from where the first left off', width(), 375)
+
+  // Moving with no gesture in flight goes back to plain hover feedback.
+  move(20, 50, 1)
+  check('the cursor returns to the view under the pointer', cursor, 'default')
+
+  mounted.unmount()
+}
+
+/* 14. A scroll view's bar is a real thumb: dragging it scrolls the content. */
+{
+  const { ScrollView } = await import('../views/scroll')
+  const { signal } = await import('../core/signal')
+
+  const y = signal(0)
+  const rows = VStack({ spacing: 0 }, ...Array.from({ length: 10 }, () => Rectangle().frame(100, 20)))
+
+  const ctx = new Ctx()
+  const v = ScrollView({ y }, rows)
+  v.measure({ w: 100, h: 100 }, ctx)
+  v.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+
+  const thumb = ctx.hits.find((h) => h.drag)
+  check('the vertical bar registers a draggable thumb', thumb != null, true)
+  check('the thumb is grabbable at more than its 4px width', thumb!.rect.w > 4, true)
+  check('the thumb offers a grab cursor', thumb!.cursor, 'grab')
+
+  // Content is 200 tall in a 100 viewport: the thumb is 50 tall with 50 of
+  // travel, so a pixel of thumb is two pixels of content.
+  const drag = (ty: number) => ({ x: 0, y: ty, dx: 0, dy: ty, tx: 0, ty, startX: 0, startY: 0 })
+  thumb!.drag!.onStart!(drag(0))
+  thumb!.drag!.onMove!(drag(10))
+  check('dragging the thumb scrolls twice as far', y(), 20)
+
+  thumb!.drag!.onMove!(drag(999))
+  check('the thumb drag clamps at the end', y(), 100)
+
+  thumb!.drag!.onMove!(drag(-999))
+  check('the thumb drag clamps at the top', y(), 0)
+
+  // Nothing to scroll means nothing to grab.
+  const still = new Ctx()
+  const fits = ScrollView({ y: signal(0) }, Rectangle().frame(100, 50))
+  fits.measure({ w: 100, h: 100 }, still)
+  fits.place({ x: 0, y: 0, w: 100, h: 100 }, still)
+  check('content that fits registers no thumb', still.hits.length, 0)
 }
 
 console.log(failures === 0 ? '\nall layout checks passed' : `\n${failures} check(s) failed`)

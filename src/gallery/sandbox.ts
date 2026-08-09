@@ -11,6 +11,8 @@ import {
   Text,
   VStack,
   ZStack,
+  clamp,
+  component,
   signal,
 } from '../index'
 
@@ -34,6 +36,8 @@ export const SANDBOX = {
   Circle,
   Ellipse,
   Button,
+  clamp,
+  component,
   signal,
 } as const
 

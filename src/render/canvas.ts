@@ -7,6 +7,9 @@ export function createCanvasBackend(): Backend {
   canvas.style.display = 'block'
   canvas.style.width = '100%'
   canvas.style.height = '100%'
+  // The toolkit handles every gesture itself; without this the browser eats
+  // touch drags as page panning before a pointermove ever arrives.
+  canvas.style.touchAction = 'none'
 
   const c = canvas.getContext('2d')
   if (!c) throw new Error('2D canvas context unavailable')
@@ -94,15 +97,32 @@ export function createCanvasBackend(): Backend {
     onPointerDown(cb) {
       canvas.addEventListener('pointerdown', (e) => {
         const r = canvas.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top)
+        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
       })
     },
 
     onPointerMove(cb) {
       canvas.addEventListener('pointermove', (e) => {
         const r = canvas.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top)
+        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
       })
+    },
+
+    onPointerUp(cb) {
+      const fire = (e: PointerEvent): void => {
+        const r = canvas.getBoundingClientRect()
+        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
+      }
+      canvas.addEventListener('pointerup', fire)
+      canvas.addEventListener('pointercancel', fire)
+    },
+
+    capturePointer(id) {
+      canvas.setPointerCapture(id)
+    },
+
+    releasePointer(id) {
+      if (canvas.hasPointerCapture(id)) canvas.releasePointerCapture(id)
     },
 
     onWheel(cb) {

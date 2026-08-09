@@ -14,6 +14,8 @@ const BAR_THICKNESS = 4
 const BAR_INSET = 3
 const BAR_MIN = 24
 const BAR_COLOR = '#3f3f46'
+/** A 4px bar is not grabbable; the hit rect is padded out to a usable target. */
+const BAR_GRAB = 7
 
 /**
  * A viewport onto a taller or wider child.
@@ -97,37 +99,82 @@ class ScrollViewImpl extends View {
     maxY: number,
     ctx: Ctx,
   ): void {
-    if (maxY > 0) {
+    if (maxY > 0 && this.axes.y) {
       const h = Math.max(BAR_MIN, rect.h * (rect.h / content.h))
+      const travel = rect.h - h
+      const thumb = {
+        x: rect.x + rect.w - BAR_THICKNESS - BAR_INSET,
+        y: rect.y + travel * (y / maxY),
+        w: BAR_THICKNESS,
+        h,
+      }
       ctx.emit({
         t: 'rect',
-        rect: {
-          x: rect.x + rect.w - BAR_THICKNESS - BAR_INSET,
-          y: rect.y + (rect.h - h) * (y / maxY),
-          w: BAR_THICKNESS,
-          h,
-        },
+        rect: thumb,
         radius: BAR_THICKNESS / 2,
         opacity: ctx.env.opacity * 0.8,
         fill: BAR_COLOR,
       })
+      this.grab(thumb, 'y', travel, maxY, ctx)
     }
 
-    if (maxX > 0) {
+    if (maxX > 0 && this.axes.x) {
       const w = Math.max(BAR_MIN, rect.w * (rect.w / content.w))
+      const travel = rect.w - w
+      const thumb = {
+        x: rect.x + travel * (x / maxX),
+        y: rect.y + rect.h - BAR_THICKNESS - BAR_INSET,
+        w,
+        h: BAR_THICKNESS,
+      }
       ctx.emit({
         t: 'rect',
-        rect: {
-          x: rect.x + (rect.w - w) * (x / maxX),
-          y: rect.y + rect.h - BAR_THICKNESS - BAR_INSET,
-          w,
-          h: BAR_THICKNESS,
-        },
+        rect: thumb,
         radius: BAR_THICKNESS / 2,
         opacity: ctx.env.opacity * 0.8,
         fill: BAR_COLOR,
       })
+      this.grab(thumb, 'x', travel, maxX, ctx)
     }
+  }
+
+  /**
+   * Makes a thumb draggable. The offset at the press is captured once and the
+   * gesture's total displacement is scaled onto it, so the thumb tracks the
+   * pointer exactly instead of drifting as the layout moves underneath.
+   */
+  private grab(
+    thumb: Rect,
+    axis: 'x' | 'y',
+    travel: number,
+    max: number,
+    ctx: Ctx,
+  ): void {
+    const offset = this.axes[axis]
+    if (!offset || travel <= 0) return
+
+    // Padded on the cross axis only: widening it along the track would let a
+    // press past the end of the thumb start a drag from the wrong place.
+    const vertical = axis === 'y'
+    let from = 0
+    ctx.addHit({
+      rect: {
+        x: vertical ? thumb.x - BAR_GRAB : thumb.x,
+        y: vertical ? thumb.y : thumb.y - BAR_GRAB,
+        w: vertical ? thumb.w + BAR_GRAB * 2 : thumb.w,
+        h: vertical ? thumb.h : thumb.h + BAR_GRAB * 2,
+      },
+      cursor: 'grab',
+      drag: {
+        onStart: () => {
+          from = offset()
+        },
+        onMove: (d) => {
+          const moved = (vertical ? d.ty : d.tx) * (max / travel)
+          offset.set(clamp(from + moved, 0, max))
+        },
+      },
+    })
   }
 }
 

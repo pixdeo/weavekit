@@ -21,9 +21,9 @@ VStack({ spacing: 8, align: 'leading' },
   .background(RoundedRect(12).fill('#18181b'))
 ```
 
-**Status: early.** The layout engine, the two renderers, scrolling and the
-invalidation model work and are covered by checks. There is no npm package yet
-and no animation. See [Roadmap](#roadmap).
+**Status: early.** The layout engine, the two renderers, scrolling, dragging
+and the invalidation model work and are covered by checks. There is no npm
+package yet and no animation. See [Roadmap](#roadmap).
 
 ## Project status and contributing
 
@@ -241,6 +241,47 @@ Rectangle().frame(7, null).cursor('col-resize')   // cursor only, not clickable
 Text('Drag me').onTap(pick, 'grab')               // explicit cursor
 ```
 
+## Dragging
+
+`.onDrag()` captures the pointer. From the press until the release, every move
+belongs to that gesture — the pointer can leave the view, leave the canvas and
+leave the window, and the handler still receives it. That is what a resize
+handle, a slider or a draggable object needs, and it is the reason the browser
+has `setPointerCapture` at all.
+
+```ts
+let from = 0
+
+divider.onDrag(
+  {
+    onStart: () => { from = sidebarWidth() },
+    onMove: (d) => sidebarWidth.set(clamp(from + d.tx, 150, 360)),
+  },
+  'col-resize',
+)
+
+// Move-only gestures can pass a bare function.
+knob.onDrag((d) => angle.set(d.ty / 100))
+```
+
+Each sample carries `dx`/`dy` (the step since the previous one) and `tx`/`ty`
+(the total since the press). **Prefer the totals.** Map them onto state you
+snapshotted in `onStart`, as above: a coalesced or dropped move then costs
+nothing, whereas summing `dx` accumulates the loss. `onEnd` also fires when the
+gesture is cancelled, so it is a safe place to settle state.
+
+The mount loop holds the `Hit` it captured at pointerdown, not a fresh lookup
+per move. The tree is rebuilt under the pointer while the drag runs — often
+*because* of the drag — and the gesture has to survive that. The practical
+consequence is that a drag handler must not read this frame's layout; it reads
+what it closed over at `onStart`.
+
+The gesture also owns the cursor for its duration, so it does not flicker as
+the pointer crosses other regions.
+
+A `ScrollView`'s bars use this: each one is a real thumb you can drag, sized to
+a grabbable target rather than to the 4px it draws.
+
 ## Clipping and scrolling
 
 `.clip()` confines a view to its own rect — everything it draws and everything
@@ -340,9 +381,7 @@ known gaps behind each item.
 4. **Virtualised lists.** `ScrollView` measures and places its whole child, so
    a very long list costs the whole list. Skipping what falls outside the
    viewport needs a list view that knows its item extents.
-5. **Drag on the scrollbar.** The bars are indicators today; they do not accept
-   a pointer. Needs pointer capture, which the toolkit has no notion of yet.
-6. **Packaging.** A library build and an npm release, so the toolkit can be
+5. **Packaging.** A library build and an npm release, so the toolkit can be
    consumed outside this repo.
 
 Deliberately not planned: canvas-native text editing. The gallery's editor is

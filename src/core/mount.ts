@@ -1,6 +1,6 @@
 import { Ctx } from './ctx'
 import type { View } from './view'
-import type { Hit, ScrollRegion } from './types'
+import type { Drag, Hit, ScrollRegion } from './types'
 import { hitTestable } from './types'
 import { subscribe } from './signal'
 import { ComponentCache, type CacheStats } from './component'
@@ -28,6 +28,22 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
   let alive = true
   let pointer: { x: number; y: number } | null = null
 
+  /**
+   * The gesture in flight. It holds the `Hit` captured at pointerdown, not a
+   * lookup repeated per move: the tree is rebuilt under the pointer while the
+   * drag runs, and the whole point of capture is that the handler survives
+   * that. Handlers should therefore read `tx`/`ty` against state they closed
+   * over at `onStart`, not against this frame's layout.
+   */
+  let gesture: {
+    id: number
+    hit: Hit
+    startX: number
+    startY: number
+    lastX: number
+    lastY: number
+  } | null = null
+
   const cache = new ComponentCache()
 
   const frame = (): void => {
@@ -50,8 +66,9 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     scrolls = ctx.scrolls
     backend.resize(w, h)
     backend.draw(ctx.ops)
-    // The layout may have moved under a stationary pointer.
-    if (pointer) updateCursor(pointer.x, pointer.y)
+    // The layout may have moved under a stationary pointer. A drag in flight
+    // owns the cursor, so leave it alone.
+    if (pointer && !gesture) updateCursor(pointer.x, pointer.y)
   }
 
   const invalidate = (): void => {
@@ -71,7 +88,26 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     return null
   }
 
-  backend.onPointerDown((x, y) => {
+  const sample = (x: number, y: number): Drag => ({
+    x,
+    y,
+    dx: x - gesture!.lastX,
+    dy: y - gesture!.lastY,
+    tx: x - gesture!.startX,
+    ty: y - gesture!.startY,
+    startX: gesture!.startX,
+    startY: gesture!.startY,
+  })
+
+  backend.onPointerDown((x, y, id) => {
+    // A tap and a drag are independent: a view can carry both, and a view that
+    // only taps is unaffected by a drag starting somewhere beneath it.
+    const draggable = gesture ? null : hitTest(x, y, (h) => h.drag != null)
+    if (draggable) {
+      gesture = { id, hit: draggable, startX: x, startY: y, lastX: x, lastY: y }
+      backend.capturePointer(id)
+      draggable.drag?.onStart?.(sample(x, y))
+    }
     hitTest(x, y, (h) => h.handler != null)?.handler?.()
   })
 
@@ -80,8 +116,29 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     backend.setCursor(hit?.cursor ?? 'default')
   }
 
-  backend.onPointerMove((x, y) => {
+  backend.onPointerMove((x, y, id) => {
     pointer = { x, y }
+
+    if (gesture && gesture.id === id) {
+      const drag = sample(x, y)
+      gesture.lastX = x
+      gesture.lastY = y
+      // The gesture keeps its own cursor wherever the pointer wanders.
+      backend.setCursor(gesture.hit.cursor ?? 'default')
+      gesture.hit.drag?.onMove?.(drag)
+      return
+    }
+
+    updateCursor(x, y)
+  })
+
+  backend.onPointerUp((x, y, id) => {
+    if (!gesture || gesture.id !== id) return
+    const { hit } = gesture
+    const drag = sample(x, y)
+    gesture = null
+    backend.releasePointer(id)
+    hit.drag?.onEnd?.(drag)
     updateCursor(x, y)
   })
 

@@ -31,13 +31,14 @@ map and a release process.
 
 ### Input
 
-- **No pointer capture, so no drag.** The backends report `pointerdown`,
-  `pointermove` and `wheel`; there is no down/move/up gesture with capture.
-  This blocks scrollbar dragging, sliders, and moving anything on a canvas.
-  Probably the single biggest hole for a canvas toolkit.
-- **The gallery's column divider is cosmetic.** It shows a `col-resize` cursor
-  and resizes nothing. Blocked on pointer capture above. `src/main.ts`.
-- **No touch.** Wheel scrolling works; touch dragging and pinch do not.
+- **One gesture at a time.** `mount` tracks a single active pointer, so a
+  second finger is ignored rather than starting its own drag. Multi-touch and
+  pinch both need the gesture state keyed by pointer id. `core/mount.ts`.
+- **No drag threshold, and no way to cancel.** A press starts the gesture
+  immediately, so a view cannot both tap and drag on the same press; there is
+  also no Escape-to-revert. Both belong in `mount`, not in each handler.
+- **No inertia.** A drag stops dead on release. `onEnd` gets no velocity, so a
+  handler cannot fling. Falls out of animation (item 1).
 - **No keyboard, no focus.** No focus ring, no tab order, no arrow-key or
   page-up/down scrolling.
 - **No accessibility.** A canvas is opaque to screen readers. The usual answer
@@ -76,8 +77,6 @@ map and a release process.
 
 ## Project chores
 
-- **Decide the copyright holder.** `LICENSE` says "The canvasUI Authors" as a
-  placeholder. Swap in a name if you want one.
 - **CI.** `npm run check && npm run check:layout` runs in seconds and nothing
   runs it automatically. A GitHub Actions workflow on push and pull request.
 - **A real test runner.** `src/dev/layout-check.ts` is a bespoke script with a

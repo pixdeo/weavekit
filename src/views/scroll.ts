@@ -76,6 +76,8 @@ class ScrollViewImpl extends View {
       },
     })
 
+    this.pan(rect, maxX, maxY, ctx)
+
     ctx.withClip(rect, () => {
       this.child.place(
         {
@@ -87,6 +89,49 @@ class ScrollViewImpl extends View {
         ctx,
       )
       this.drawBars(rect, content, x, y, maxX, maxY, ctx)
+    })
+  }
+
+  /**
+   * Dragging the content pans it, which is what every touch surface does and
+   * what no mouse does — a mouse press on content is a press, not a scroll —
+   * so the gesture is restricted to touch and pen. A mouse press falls through
+   * to whatever is underneath, exactly as if this hit did not exist.
+   *
+   * Registered before the child, so draggable content wins the press, and
+   * before the bars, which are placed later still and win over both.
+   *
+   * The wheel's chaining rule applies in the one form a captured gesture can
+   * express it: a viewport with nothing to move registers no pan at all, so
+   * the press reaches an enclosing viewport that does. Unlike the wheel, a
+   * pan that runs out mid-gesture cannot hand over — it already owns the
+   * pointer — so it clamps and holds.
+   */
+  private pan(rect: Rect, maxX: number, maxY: number, ctx: Ctx): void {
+    const panX = this.axes.x && maxX > 0 ? this.axes.x : null
+    const panY = this.axes.y && maxY > 0 ? this.axes.y : null
+    if (!panX && !panY) return
+
+    // Snapshotted at the press and mapped from the total, like the thumbs:
+    // the offset this closure saw is a frame old by the second move.
+    let fromX = 0
+    let fromY = 0
+    ctx.addHit({
+      rect,
+      // No cursor: a mouse hovering the content must see no change.
+      drag: {
+        pointerTypes: ['touch', 'pen'],
+        onStart: () => {
+          fromX = panX?.() ?? 0
+          fromY = panY?.() ?? 0
+        },
+        // Content follows the finger 1:1, so it moves the way the finger does
+        // and the offset moves against it.
+        onMove: (d) => {
+          panX?.set(clamp(fromX - d.tx, 0, maxX))
+          panY?.set(clamp(fromY - d.ty, 0, maxY))
+        },
+      },
     })
   }
 

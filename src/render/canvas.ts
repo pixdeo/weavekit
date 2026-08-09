@@ -1,5 +1,6 @@
-import type { Backend } from './backend'
+import type { Backend, PointerCallback } from './backend'
 import type { DrawOp } from '../core/types'
+import { pointerTypeOf } from '../core/types'
 import { fontCss } from '../core/text-measure'
 
 export function createCanvasBackend(): Backend {
@@ -16,6 +17,11 @@ export function createCanvasBackend(): Backend {
 
   let width = 0
   let height = 0
+
+  const report = (cb: PointerCallback, e: PointerEvent): void => {
+    const r = canvas.getBoundingClientRect()
+    cb(e.clientX - r.left, e.clientY - r.top, e.pointerId, pointerTypeOf(e.pointerType))
+  }
 
   return {
     el: canvas,
@@ -95,24 +101,15 @@ export function createCanvasBackend(): Backend {
     },
 
     onPointerDown(cb) {
-      canvas.addEventListener('pointerdown', (e) => {
-        const r = canvas.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
-      })
+      canvas.addEventListener('pointerdown', (e) => report(cb, e))
     },
 
     onPointerMove(cb) {
-      canvas.addEventListener('pointermove', (e) => {
-        const r = canvas.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
-      })
+      canvas.addEventListener('pointermove', (e) => report(cb, e))
     },
 
     onPointerUp(cb) {
-      const fire = (e: PointerEvent): void => {
-        const r = canvas.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
-      }
+      const fire = (e: PointerEvent): void => report(cb, e)
       canvas.addEventListener('pointerup', fire)
       canvas.addEventListener('pointercancel', fire)
     },

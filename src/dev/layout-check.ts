@@ -591,14 +591,16 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   v.measure({ w: 100, h: 100 }, ctx)
   v.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
 
-  const thumb = ctx.hits.find((h) => h.drag)
+  // The viewport also registers a pan hit; the thumb is the one with a cursor.
+  const thumb = ctx.hits.find((h) => h.drag && h.cursor)
   check('the vertical bar registers a draggable thumb', thumb != null, true)
   check('the thumb is grabbable at more than its 4px width', thumb!.rect.w > 4, true)
   check('the thumb offers a grab cursor', thumb!.cursor, 'grab')
 
   // Content is 200 tall in a 100 viewport: the thumb is 50 tall with 50 of
   // travel, so a pixel of thumb is two pixels of content.
-  const drag = (ty: number) => ({ x: 0, y: ty, dx: 0, dy: ty, tx: 0, ty, startX: 0, startY: 0 })
+  const drag = (ty: number) =>
+    ({ x: 0, y: ty, dx: 0, dy: ty, tx: 0, ty, startX: 0, startY: 0, pointerType: 'mouse' }) as const
   thumb!.drag!.onStart!(drag(0))
   thumb!.drag!.onMove!(drag(10))
   check('dragging the thumb scrolls twice as far', y(), 20)
@@ -615,6 +617,359 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   fits.measure({ w: 100, h: 100 }, still)
   fits.place({ x: 0, y: 0, w: 100, h: 100 }, still)
   check('content that fits registers no thumb', still.hits.length, 0)
+}
+
+/* 15. Multi-touch: gestures are keyed by pointer id, so several pointers run
+       their own handlers at the same time. Driven through the real mount loop
+       with a recording backend, because that loop is the whole feature. */
+{
+  const { mount } = await import('../core/mount')
+  const { signal } = await import('../core/signal')
+
+  type Pointer = (x: number, y: number, id: number, type?: string) => void
+
+  /** A backend that records the cursor and the captures it was asked for. */
+  const harness = () => {
+    let cursor = ''
+    const captured = new Set<number>()
+    const fns = {
+      down: (() => {}) as Pointer,
+      move: (() => {}) as Pointer,
+      up: (() => {}) as Pointer,
+    }
+    const backend = {
+      el: {},
+      resize: () => {},
+      draw: () => {},
+      onPointerDown: (cb: Pointer) => {
+        fns.down = cb
+      },
+      onPointerMove: (cb: Pointer) => {
+        fns.move = cb
+      },
+      onPointerUp: (cb: Pointer) => {
+        fns.up = cb
+      },
+      capturePointer: (id: number) => {
+        captured.add(id)
+      },
+      releasePointer: (id: number) => {
+        captured.delete(id)
+      },
+      onWheel: () => {},
+      setCursor: (c: string) => {
+        cursor = c
+      },
+      destroy: () => {},
+    }
+    return { backend, captured, fns, cursor: () => cursor }
+  }
+
+  const host = { clientWidth: 300, clientHeight: 100, replaceChildren: () => {} }
+  const boot = (h: ReturnType<typeof harness>, build: () => import('../core/view').View) =>
+    mount(host as unknown as HTMLElement, h.backend as unknown as Parameters<typeof mount>[1], build)
+
+  /* Two draggable objects side by side: a spans x 0..100, b spans 100..200. */
+  {
+    const h = harness()
+    const ax = signal(0)
+    const bx = signal(0)
+    const starts: string[] = []
+    const ends: string[] = []
+    let fromA = 0
+    let fromB = 0
+
+    const mounted = boot(h, () =>
+      HStack(
+        { spacing: 0 },
+        Rectangle()
+          .fill('#111')
+          .frame(100, null)
+          .onDrag({
+            onStart: (d) => {
+              fromA = ax()
+              starts.push(`a:${d.pointerType}`)
+            },
+            onMove: (d) => ax.set(fromA + d.tx),
+            onEnd: () => ends.push('a'),
+          }),
+        Rectangle()
+          .fill('#222')
+          .frame(100, null)
+          .onDrag({
+            onStart: (d) => {
+              fromB = bx()
+              starts.push(`b:${d.pointerType}`)
+            },
+            onMove: (d) => bx.set(fromB + d.tx),
+            onEnd: () => ends.push('b'),
+          }),
+        Rectangle().fill('#333').expand(),
+      ),
+    )
+
+    h.fns.down(20, 50, 1, 'touch')
+    h.fns.down(150, 50, 2, 'touch')
+    check('a second finger starts its own gesture', starts, ['a:touch', 'b:touch'])
+    check('both pointers are captured', [...h.captured], [1, 2])
+
+    h.fns.move(60, 50, 1, 'touch')
+    check('the first finger drives its own object', [ax(), bx()], [40, 0])
+
+    h.fns.move(120, 50, 2, 'touch')
+    check('the second finger drives the other', [ax(), bx()], [40, -30])
+
+    h.fns.move(10, 50, 1, 'touch')
+    check('neither gesture disturbs the other', [ax(), bx()], [-10, -30])
+
+    h.fns.up(10, 50, 1, 'touch')
+    check('releasing one frees only its pointer', [...h.captured], [2])
+    check('and ends only its handler', ends, ['a'])
+
+    h.fns.move(200, 50, 2, 'touch')
+    check('the surviving gesture keeps going', bx(), 50)
+
+    h.fns.move(300, 50, 1, 'touch')
+    check('the released pointer no longer drives anything', ax(), -10)
+
+    mounted.unmount()
+    check('unmount releases the captures it still holds', [...h.captured], [])
+  }
+
+  /* Two fingers on the same view. Each gets its own gesture; what that means
+     is the handler's decision, not the loop's. */
+  {
+    const h = harness()
+    const totals: number[] = []
+    const mounted = boot(h, () =>
+      Rectangle()
+        .fill('#111')
+        .expand()
+        .onDrag((d) => totals.push(d.tx)),
+    )
+
+    h.fns.down(10, 50, 1, 'touch')
+    h.fns.down(200, 50, 2, 'touch')
+    check('one view can hold two gestures at once', [...h.captured], [1, 2])
+
+    h.fns.move(40, 50, 1, 'touch')
+    h.fns.move(150, 50, 2, 'touch')
+    check('each keeps its own origin', totals, [30, -50])
+
+    mounted.unmount()
+  }
+
+  /* A cancel arrives as an up, so the gesture terminates either way. */
+  {
+    const h = harness()
+    const log: string[] = []
+    let moves = 0
+    const mounted = boot(h, () =>
+      Rectangle()
+        .fill('#111')
+        .expand()
+        .onDrag({ onMove: () => moves++, onEnd: () => log.push('end') }),
+    )
+
+    h.fns.down(10, 50, 4, 'touch')
+    h.fns.up(10, 50, 4, 'touch') // pointercancel is routed here by the backend
+    check('a cancelled gesture ends', log, ['end'])
+    check('and gives the pointer back', [...h.captured], [])
+
+    h.fns.move(80, 50, 4, 'touch')
+    check('moves after a cancel go nowhere', moves, 0)
+
+    mounted.unmount()
+  }
+
+  /* One cursor, several pointers. Touch and pen never touch it; among mouse
+     gestures the first to start holds it until it ends. */
+  {
+    const h = harness()
+    const mounted = boot(h, () =>
+      HStack(
+        { spacing: 0 },
+        Rectangle()
+          .fill('#111')
+          .frame(100, null)
+          .onDrag(() => {}, 'grabbing'),
+        Rectangle().fill('#222').expand().cursor('crosshair'),
+      ),
+    )
+
+    h.fns.move(150, 50, 1, 'mouse')
+    check('hover shows the region under the mouse', h.cursor(), 'crosshair')
+
+    h.fns.down(20, 50, 2, 'touch')
+    h.fns.move(60, 50, 2, 'touch')
+    check('a touch gesture leaves the cursor where the mouse is', h.cursor(), 'crosshair')
+
+    h.fns.up(60, 50, 2, 'touch')
+    check('and releasing it changes nothing', h.cursor(), 'crosshair')
+
+    h.fns.down(20, 50, 1, 'mouse')
+    h.fns.move(250, 50, 1, 'mouse')
+    check('a mouse gesture owns the cursor off its view', h.cursor(), 'grabbing')
+
+    h.fns.down(150, 50, 3, 'touch')
+    h.fns.move(160, 50, 3, 'touch')
+    check('a finger cannot take it from a mouse drag', h.cursor(), 'grabbing')
+
+    h.fns.up(250, 50, 1, 'mouse')
+    check('release hands the cursor back to hover', h.cursor(), 'crosshair')
+
+    mounted.unmount()
+  }
+
+  /* `pointerTypes` does not swallow the press it refuses: the scan carries on
+     into whatever sits beneath. */
+  {
+    const h = harness()
+    const log: string[] = []
+    const mounted = boot(h, () =>
+      Rectangle()
+        .fill('#111')
+        .expand()
+        .onDrag({ onStart: () => log.push('under') })
+        .overlay(
+          Rectangle()
+            .fill('transparent')
+            .expand()
+            .onDrag({ pointerTypes: ['touch'], onStart: () => log.push('touch only') }),
+        ),
+    )
+
+    h.fns.down(50, 50, 1, 'touch')
+    check('a touch press takes the touch-only surface', log, ['touch only'])
+    h.fns.up(50, 50, 1, 'touch')
+
+    h.fns.down(50, 50, 2, 'mouse')
+    check('a mouse press falls through to the layer beneath', log, ['touch only', 'under'])
+    h.fns.up(50, 50, 2, 'mouse')
+
+    mounted.unmount()
+  }
+}
+
+/* 16. Touch panning: a finger dragging the content scrolls it, a mouse does
+       not, and the bars still win the press. */
+{
+  const { ScrollView } = await import('../views/scroll')
+  const { signal } = await import('../core/signal')
+
+  const rows = () => VStack({ spacing: 0 }, ...Array.from({ length: 10 }, () => Rectangle().frame(100, 20)))
+
+  {
+    const y = signal(0)
+    const content = rows()
+    const place = () => {
+      const ctx = new Ctx()
+      const v = ScrollView({ y }, content)
+      v.measure({ w: 100, h: 100 }, ctx)
+      v.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+      return ctx
+    }
+
+    const pan = place().hits[0]
+    check('the pan hit is registered first, so children win the press', round(pan.rect), {
+      x: 0,
+      y: 0,
+      w: 100,
+      h: 100,
+    })
+    check('the pan accepts only touch and pen', pan.drag!.pointerTypes, ['touch', 'pen'])
+    check('the pan contributes no cursor', pan.cursor === undefined, true)
+
+    const drag = (ty: number) =>
+      ({ x: 0, y: ty, dx: 0, dy: ty, tx: 0, ty, startX: 0, startY: 0, pointerType: 'touch' }) as const
+
+    // Content is 200 tall in a 100 viewport, so the offset runs 0..100.
+    pan.drag!.onStart!(drag(0))
+    pan.drag!.onMove!(drag(-30))
+    check('dragging up moves the content up, 1:1', y(), 30)
+
+    pan.drag!.onMove!(drag(-999))
+    check('the pan clamps at the end', y(), 100)
+
+    pan.drag!.onMove!(drag(999))
+    check('the pan clamps at the top', y(), 0)
+
+    // A fresh gesture snapshots the offset again rather than replaying.
+    y.set(40)
+    const next = place().hits[0]
+    next.drag!.onStart!(drag(0))
+    next.drag!.onMove!(drag(25))
+    check('dragging down moves the content down from where it was', y(), 15)
+  }
+
+  // The wheel's chaining rule, in the form a captured gesture can express: a
+  // viewport with nothing to move registers no pan, so the press reaches an
+  // enclosing one instead of being swallowed.
+  {
+    const ctx = new Ctx()
+    const fits = ScrollView({ y: signal(0) }, Rectangle().frame(100, 50))
+    fits.measure({ w: 100, h: 100 }, ctx)
+    fits.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+    check('a viewport with nothing to scroll registers no pan', ctx.hits.length, 0)
+  }
+
+  /* Through the real loop: pointer type decides, and the thumb still wins. */
+  {
+    const { mount } = await import('../core/mount')
+
+    type Pointer = (x: number, y: number, id: number, type?: string) => void
+    let down: Pointer = () => {}
+    let move: Pointer = () => {}
+    let up: Pointer = () => {}
+
+    const backend = {
+      el: {},
+      resize: () => {},
+      draw: () => {},
+      onPointerDown: (cb: Pointer) => {
+        down = cb
+      },
+      onPointerMove: (cb: Pointer) => {
+        move = cb
+      },
+      onPointerUp: (cb: Pointer) => {
+        up = cb
+      },
+      capturePointer: () => {},
+      releasePointer: () => {},
+      onWheel: () => {},
+      setCursor: () => {},
+      destroy: () => {},
+    }
+    const host = { clientWidth: 100, clientHeight: 100, replaceChildren: () => {} }
+
+    const y = signal(0)
+    const content = rows()
+    const mounted = mount(
+      host as unknown as HTMLElement,
+      backend as unknown as Parameters<typeof mount>[1],
+      () => ScrollView({ y }, content),
+    )
+
+    down(50, 50, 1, 'mouse')
+    move(50, 20, 1, 'mouse')
+    check('a mouse drag over the content does not pan', y(), 0)
+    up(50, 20, 1, 'mouse')
+
+    down(50, 50, 2, 'touch')
+    move(50, 20, 2, 'touch')
+    check('a finger dragging the content pans it', y(), 30)
+    up(50, 20, 2, 'touch')
+
+    // The thumb is placed after the pan hit, so it wins the back-to-front
+    // scan: x 86..104, and at offset 30 it spans y 15..65.
+    down(93, 40, 3, 'touch')
+    move(93, 50, 3, 'touch')
+    check('a finger on the thumb drags the thumb, not the content', y(), 50)
+    up(93, 50, 3, 'touch')
+
+    mounted.unmount()
+  }
 }
 
 console.log(failures === 0 ? '\nall layout checks passed' : `\n${failures} check(s) failed`)

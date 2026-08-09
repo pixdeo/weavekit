@@ -1,5 +1,6 @@
-import type { Backend } from './backend'
+import type { Backend, PointerCallback } from './backend'
 import type { DrawOp } from '../core/types'
+import { pointerTypeOf } from '../core/types'
 
 /**
  * Debug backend. Same DrawOps, rendered as absolutely positioned elements so
@@ -23,6 +24,11 @@ export function createDomBackend(outline = false): Backend {
     d.style.boxSizing = 'border-box'
     if (outline) d.style.outline = '1px solid rgba(255,80,80,.35)'
     return d
+  }
+
+  const report = (cb: PointerCallback, e: PointerEvent): void => {
+    const r = root.getBoundingClientRect()
+    cb(e.clientX - r.left, e.clientY - r.top, e.pointerId, pointerTypeOf(e.pointerType))
   }
 
   return {
@@ -69,24 +75,15 @@ export function createDomBackend(outline = false): Backend {
     },
 
     onPointerDown(cb) {
-      root.addEventListener('pointerdown', (e) => {
-        const r = root.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
-      })
+      root.addEventListener('pointerdown', (e) => report(cb, e))
     },
 
     onPointerMove(cb) {
-      root.addEventListener('pointermove', (e) => {
-        const r = root.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
-      })
+      root.addEventListener('pointermove', (e) => report(cb, e))
     },
 
     onPointerUp(cb) {
-      const fire = (e: PointerEvent): void => {
-        const r = root.getBoundingClientRect()
-        cb(e.clientX - r.left, e.clientY - r.top, e.pointerId)
-      }
+      const fire = (e: PointerEvent): void => report(cb, e)
       root.addEventListener('pointerup', fire)
       root.addEventListener('pointercancel', fire)
     },

@@ -12,7 +12,9 @@ of it. Touches `core/component.ts` and `core/mount.ts`.
 
 **2. Camera.** Pan and zoom as a transform applied to the root rect, with zoom
 anchored at the cursor. Draw ops and hit rects both need the transform, which
-is the same shape of problem clipping already solved — see `Ctx.emit`.
+is the same shape of problem clipping already solved — see `Ctx.emit`. Pinch
+belongs here too: `mount` tracks pointers concurrently, but a two-finger scale
+has nothing to apply itself to until the transform exists.
 
 **3. Spatial index for hit testing.** `mount` scans the hit list linearly. Fine
 below a few hundred nodes, wrong above it. A quadtree rebuilt per frame, or
@@ -31,9 +33,17 @@ map and a release process.
 
 ### Input
 
-- **One gesture at a time.** `mount` tracks a single active pointer, so a
-  second finger is ignored rather than starting its own drag. Multi-touch and
-  pinch both need the gesture state keyed by pointer id. `core/mount.ts`.
+- **No multi-pointer gestures.** Pointers are tracked concurrently, but each
+  one is a gesture on its own: nothing combines two of them. Pinch, rotate and
+  two-finger pan all need a recogniser above `mount` that owns a *set* of
+  pointers over one view and reports scale and rotation rather than a
+  displacement. Pinch-to-zoom in particular belongs with Camera (item 2) —
+  without a transform on the root there is nothing for it to drive.
+- **A pan cannot chain mid-gesture.** A `ScrollView` with nothing to move
+  registers no pan hit, so the press reaches an enclosing viewport; but one
+  that runs out of room part-way through a drag clamps and holds, because it
+  already owns the pointer and a capture cannot be transferred. The wheel
+  chains in both cases. `views/scroll.ts`.
 - **No drag threshold, and no way to cancel.** A press starts the gesture
   immediately, so a view cannot both tap and drag on the same press; there is
   also no Escape-to-revert. Both belong in `mount`, not in each handler.

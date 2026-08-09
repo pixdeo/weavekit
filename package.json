@@ -1,0 +1,17 @@
+{
+  "name": "canvas-ui",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "check": "tsc --noEmit",
+    "check:layout": "vite build --ssr src/dev/layout-check.ts --outDir dist-check --logLevel error && node dist-check/layout-check.js",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vite": "^6.0.7"
+  }
+}

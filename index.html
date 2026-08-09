@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>canvasUI — declarative canvas toolkit</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background: #08080a;
+        color: #e4e4e7;
+      }
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 14px;
+        border-bottom: 1px solid #1f1f23;
+        font-size: 12px;
+      }
+      .toolbar span {
+        color: #52525b;
+        margin-right: auto;
+      }
+      button {
+        font: inherit;
+        font-size: 12px;
+        padding: 5px 11px;
+        border-radius: 7px;
+        border: 1px solid #27272a;
+        background: #151518;
+        color: #a1a1aa;
+        cursor: pointer;
+      }
+      button.on {
+        background: #27272a;
+        color: #fafafa;
+        border-color: #3f3f46;
+      }
+      #stage {
+        flex: 1;
+        min-height: 0;
+        position: relative;
+      }
+      /* The canvas fills the stage; the overlay carries DOM that has to line
+         up with canvas-laid-out rects, like the code editor. */
+      #canvas-host,
+      #overlay {
+        position: absolute;
+        inset: 0;
+      }
+      #overlay {
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="toolbar">
+      <span>edit the code on the left — the canvas on the right re-renders as you type</span>
+      <button data-backend="canvas">Canvas 2D</button>
+      <button data-backend="dom">DOM (debug)</button>
+    </div>
+    <div id="stage">
+      <div id="canvas-host"></div>
+      <div id="overlay"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

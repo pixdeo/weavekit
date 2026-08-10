@@ -23,7 +23,37 @@ VStack({ spacing: 8, align: 'leading' },
 
 **Status: early.** The layout engine, the two renderers, scrolling, dragging,
 multi-touch and the invalidation model work and are covered by checks. There is
-no npm package yet and no animation. See [Roadmap](#roadmap).
+no animation yet. See [Roadmap](#roadmap).
+
+## Install
+
+```bash
+npm install @pixdeo/weavekit
+```
+
+WeaveKit is a browser library: it renders to a `<canvas>` and has no runtime
+dependencies. Give a host element a size, then mount:
+
+```ts
+import { createCanvasBackend, mount, Text, VStack } from '@pixdeo/weavekit'
+
+const app = () =>
+  VStack({ spacing: 8, align: 'leading' },
+    Text('Hello from WeaveKit').font({ size: 24, weight: 700 }),
+    Text('Declarative layout, drawn on a canvas.'),
+  )
+
+mount(document.getElementById('app')!, createCanvasBackend(), app)
+```
+
+```html
+<div id="app" style="position: fixed; inset: 0"></div>
+<script type="module" src="/main.ts"></script>
+```
+
+The toolkit ships as ESM and has no dependencies, so it bundles with anything —
+Vite, esbuild, Rollup, webpack. See [`examples/npm`](examples/npm/) for a
+complete, runnable example.
 
 ## Project status and contributing
 

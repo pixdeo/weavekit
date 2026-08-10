@@ -1,0 +1,16 @@
+{
+  "name": "weavekit-npm-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@pixdeo/weavekit": "0.0.1"
+  },
+  "devDependencies": {
+    "vite": "^6.0.7"
+  }
+}

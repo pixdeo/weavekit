@@ -439,11 +439,20 @@ plain signal still scrolls; it simply stops when the finger does. Pressing
 again during a coast settles it where it is, so the content never slides out
 from under a finger that has caught it.
 
-One rule falls out of the distinction and is worth stating: **a gesture writes
-the offset without animating it.** `set` on an `animated()` interpolates, which
-is right for a wheel notch and wrong for a finger — content that springs toward
-the pointer lags behind it, and direct manipulation means it does not. Drags
-and thumbs write through `settle`; only the wheel and the release animate.
+One rule falls out of the distinction and is worth stating: **input lands
+immediately; only releases animate.** `set` on an `animated()` interpolates,
+which is wrong for anything a hand is directly driving — content that springs
+toward the input lags behind it, and direct manipulation means it does not.
+Fingers, scrollbar thumbs and wheel notches all write through `settle`; the
+fling and the bounce are the only things that interpolate.
+
+Smoothing each wheel notch through the spring is tempting and worse than it
+sounds. A trackpad already sends a delta per frame, so animating them stacks
+the spring's whole response time onto a gesture that was continuous to begin
+with. It also ties two unrelated things to one number: raise `response` for a
+softer bounce and scrolling goes mushy along with it, which makes the setting
+feel like it does nothing good in either direction. Keeping tracking out of it
+leaves the spec meaning exactly one thing — how the content coasts and bounces.
 
 ### Rubber-banding
 
@@ -457,16 +466,28 @@ sounds — a trackpad is how most people will meet a scroll view, and a bounce
 only touch devices can see is a bounce nobody sees. The wheel has no release
 event to hang it off, though: there is no "the fingers left the trackpad", and
 a momentum phase keeps delivering deltas long after they did. So the end of a
-wheel gesture is inferred from a 100ms gap. That is the one piece of this that
-is a heuristic rather than a consequence.
+wheel gesture is inferred from an 80ms gap. That is the one piece of this that
+is a heuristic rather than a consequence, and it is kept short because every
+millisecond of it is dead time the content spends stretched and still, which
+reads as sluggishness far more than the spring does.
 
-Wheel deltas also accumulate onto where the axis is **heading**, not where it
-is. An animated axis is mid-flight for most of a scroll, so measuring from the
-current value quietly loses part of every notch after the first.
+The resistance curve is Apple's:
 
-The resistance curve is Apple's, and so is its useful property — displacement
-asymptotes at `viewport / 0.55`, so however hard the content is pulled it can
-never be dragged clean off the screen.
+```
+resist(x) = (1 - 1 / (x·c/d + 1)) · d        c = 0.55, d = the viewport
+```
+
+Both of its ends are load-bearing. It leaves the edge at slope `c`, so
+resistance is there from the very first pixel instead of arriving later, and it
+asymptotes at exactly `d` — one viewport — so the content can be pushed to the
+edge of the screen and no further.
+
+Scaling the whole thing by `1/c`, which is an easy thing to do by accident,
+ruins both ends at once: it starts at slope 1, which is no resistance at all,
+and runs out at 1.8 viewports, which reads as the content coming loose. If a
+band feels wrong, check its two ends before reaching for the spring — the curve
+is geometry and the spring is only the journey back, and they are worth keeping
+independent so that each can be judged on its own.
 
 The inverse of that curve matters as much as the curve. Grabbing content
 mid-bounce has to resume from the raw distance the visible offset stands for;

@@ -1574,18 +1574,31 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     check('and stays put', y(), 0)
   }
 
+  /* In range, a wheel lands 1:1 and instantly — the spring is for coasting
+     and bouncing, never for tracking. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    regionFor({ y }).scroll(0, 40)
+    check('a wheel in range moves exactly its delta', y(), 40)
+    check('with nothing left animating', y.animating(), false)
+    regionFor({ y }).scroll(0, 25)
+    check('and the next one accumulates on it', y(), 65)
+  }
+
   /* An animated one bands and keeps the wheel. */
   {
     const y = animated(0, spring({ response: 200, damping: 1 }))
     check('an animated axis consumes a wheel past the top', regionFor({ y }).scroll(0, -50), true)
-    check('and goes out of range', y.target() < 0, true)
+    check('and goes out of range', y() < 0, true)
 
-    // Accumulation is onto the target, so a second notch adds to the first
-    // rather than being measured from a value still animating toward it.
-    const first = y.target()
+    // The band is Apple's curve: it leaves the edge at 0.55 and asymptotes at
+    // one viewport, so 50 past the top of a 100-tall one gives 50*0.55/(...).
+    check('the first push is resisted from the outset', y() > -50 * 0.55, true)
+    const first = y()
     regionFor({ y }).scroll(0, -50)
-    check('a second notch accumulates onto the first', y.target() < first, true)
-    check('but bands harder, so it adds less', y.target() > first * 2, true)
+    check('a second push accumulates onto the first', y() < first, true)
+    check('but bands harder, so it adds less', y() > first * 2, true)
+    check('and it can never exceed one viewport', y() > -100, true)
 
     // Let the band actually get there, so the bounce is a real journey back
     // rather than a retarget from a value that never left zero.

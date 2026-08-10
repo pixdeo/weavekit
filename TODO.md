@@ -70,10 +70,14 @@ map and a release process.
   content never overshoots on its own. A spring with damping below 1 already
   overshoots and the viewport already renders out-of-range offsets, so this is
   a matter of choosing the target, not new machinery. `views/scroll.ts`.
-- **The end of a wheel gesture is a 100ms timeout.** There is no event for a
+- **The end of a wheel gesture is an 80ms timeout.** There is no event for a
   trackpad being released, and momentum deltas keep arriving after it, so the
   bounce is scheduled on a gap. It is the one heuristic in the scrolling path.
   `views/scroll.ts`.
+- **No smoothing for a discrete mouse wheel.** Every input lands 1:1, which is
+  right for a trackpad and leaves a notched wheel a little steppy. Smoothing
+  only that needs the two devices told apart — `deltaMode` and delta size are
+  the usual hints, and neither is reliable. `views/scroll.ts`.
 - **No keyboard, no focus.** No focus ring, no tab order, no arrow-key or
   page-up/down scrolling.
 - **No accessibility.** A canvas is opaque to screen readers. The usual answer

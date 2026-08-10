@@ -23,10 +23,11 @@ const flingable = (axis: ScrollAxis): axis is Animated => 'settle' in axis
 /**
  * Moves an axis right now, with no interpolation.
  *
- * `set` on an `animated()` axis *animates*, which is what a wheel notch wants
- * and exactly what a gesture does not: content that springs toward the finger
- * lags behind it, and the whole point of a direct manipulation is that it does
- * not. Anything driven by a pointer writes through here.
+ * `set` on an `animated()` axis *animates*, which is wrong for anything a hand
+ * is directly driving: content that springs toward the input lags behind it,
+ * and the whole point of direct manipulation is that it does not. Fingers,
+ * scrollbar thumbs and wheel notches all write through here; only a release —
+ * a fling or a bounce — animates.
  */
 const put = (axis: ScrollAxis, v: number): void => {
   if (flingable(axis)) axis.settle(v)
@@ -41,19 +42,28 @@ const put = (axis: ScrollAxis, v: number): void => {
 const FLING_MIN = 60
 
 /**
- * Rubber-band tension. Dragging past the end moves the content by a fraction
- * of the distance that shrinks the further it goes, so the edge announces
- * itself by feel instead of by stopping dead.
- *
- * Apple's constant, and the shape is theirs too: displacement asymptotes at
- * `dim / RUBBER`, so the content can never be dragged clean off the viewport
- * however hard it is pulled.
+ * Rubber-band tension: how much of the first unit past an end the content
+ * actually takes. Apple's constant.
  */
 const RUBBER = 0.55
 
-/** Raw overshoot in, resisted overshoot out. Both positive. */
+/**
+ * Raw overshoot in, resisted overshoot out. Both positive.
+ *
+ *   resist(x) = (1 - 1 / (x·c/d + 1)) · d
+ *
+ * Apple's curve, and the two numbers that make it feel right are its ends. It
+ * leaves the edge at slope `c`, so resistance is there from the very first
+ * unit rather than arriving later, and it asymptotes at exactly `d` — one
+ * viewport — so the content can be pulled to the edge of the screen and no
+ * further, however hard it is pushed.
+ *
+ * Scaling the whole thing by `1/c` instead, which is an easy thing to do by
+ * accident, ruins both: it starts at slope 1, which is no resistance at all,
+ * and runs out at 1.8 viewports, which reads as the content coming loose.
+ */
 const resist = (over: number, dim: number): number =>
-  dim <= 0 ? 0 : (1 - 1 / ((over * RUBBER) / dim + 1)) * (dim / RUBBER)
+  dim <= 0 ? 0 : (1 - 1 / ((over * RUBBER) / dim + 1)) * dim
 
 /**
  * The exact inverse. Grabbing the content mid-bounce has to resume from the
@@ -62,10 +72,10 @@ const resist = (over: number, dim: number): number =>
  */
 const unresist = (shown: number, dim: number): number => {
   if (dim <= 0) return 0
-  const k = RUBBER / dim
-  // The asymptote: nothing shown beyond it corresponds to a finite raw drag.
-  if (shown * k >= 1) return Infinity
-  return (1 / (1 - shown * k) - 1) / k
+  // The asymptote is one viewport; nothing at or beyond it came from a finite
+  // push.
+  if (shown >= dim) return Infinity
+  return ((1 / (1 - shown / dim) - 1) * dim) / RUBBER
 }
 
 /** The offset to display for a raw one, banded past either end. */
@@ -109,11 +119,14 @@ const release = (axis: ScrollAxis | null, velocity: number, max: number): void =
  *
  * A wheel has no release to hook onto — there is no event for "the fingers
  * left the trackpad", and a momentum phase keeps delivering deltas long after
- * they did. So the end of the gesture has to be inferred from a gap, and this
- * is the shortest gap that is not one. Comfortably longer than a frame at
- * 60Hz, comfortably shorter than a deliberate pause.
+ * they did. So the end of the gesture has to be inferred from a gap.
+ *
+ * Every millisecond of it is dead time the content spends stretched and still
+ * before it starts back, which reads as sluggishness far more than the spring
+ * does. So: as short as it can be without tripping over the gap between two
+ * notches of a real mouse wheel, which is a few frames.
  */
-const WHEEL_IDLE = 100
+const WHEEL_IDLE = 80
 
 /**
  * Pending bounce-backs, keyed by the axis they will move.
@@ -139,9 +152,9 @@ const scheduleBounce = (axis: Animated, max: number): void => {
     axis,
     setTimeout(() => {
       bounces.delete(axis)
-      // Where it is *heading*, not where it is. The wheel animates each notch,
-      // so the value is still on its way out when this fires and testing it
-      // would call an overscroll in progress "in range" and skip the bounce.
+      // Where it is *heading*, not where it is. A wheel lands immediately so
+      // the two agree, but a fling taken over by a wheel may still be in
+      // flight, and it is the destination that decides whether to bounce.
       const at = axis.target()
       if (at < 0 || at > max) axis.set(clamp(at, 0, max), 0)
     }, WHEEL_IDLE),
@@ -226,9 +239,18 @@ class ScrollViewImpl extends View {
   /**
    * One wheel delta on one axis. Reports whether it was consumed.
    *
-   * Deltas accumulate onto where the axis is *heading*, not where it is. An
-   * animated axis is mid-flight for most of a scroll, so measuring from the
-   * current value loses part of every notch after the first.
+   * The delta lands immediately, with no interpolation, even on an animated
+   * axis. Smoothing each notch through the spring sounds nicer than it is: a
+   * trackpad already sends a delta per frame, so animating them stacks the
+   * spring's whole response time onto a gesture that was continuous to begin
+   * with, and the content trails the fingers. It also couples two unrelated
+   * things to one setting — raise `response` for a softer bounce and scrolling
+   * goes mushy with it. Here the spec means one thing: how the content coasts
+   * and bounces, never how it tracks.
+   *
+   * Accumulating from the current value rather than the target follows from
+   * that, and takes over a fling from where it visibly is instead of jumping
+   * to wherever it was headed.
    *
    * An elastic axis bands past its ends and keeps the wheel, which is what a
    * native nested scroller does: once a gesture is in a region, that region
@@ -238,10 +260,10 @@ class ScrollViewImpl extends View {
    */
   private wheel(axis: ScrollAxis, delta: number, max: number, dim: number): boolean {
     const elastic = flingable(axis) && max > 0
-    const from = flingable(axis) ? axis.target() : axis()
+    const from = axis()
     const next = band(unband(from, max, dim) + delta, max, dim, elastic)
     if (next === from) return false
-    axis.set(next)
+    put(axis, next)
     // Rescheduled on every delta, so it fires once the wheel goes quiet.
     if (elastic) scheduleBounce(axis, max)
     return true

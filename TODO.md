@@ -70,10 +70,14 @@ map and a release process.
   content never overshoots on its own. A spring with damping below 1 already
   overshoots and the viewport already renders out-of-range offsets, so this is
   a matter of choosing the target, not new machinery. `views/scroll.ts`.
-- **The end of a wheel gesture is an 80ms timeout.** There is no event for a
+- **The end of a wheel gesture is a 50ms timeout.** There is no event for a
   trackpad being released, and momentum deltas keep arriving after it, so the
   bounce is scheduled on a gap. It is the one heuristic in the scrolling path.
   `views/scroll.ts`.
+- **The bounce shares the axis's spring with the fling.** One spec covers
+  both, so a deliberately lazy fling drags the bounce out with it. Apple keeps
+  them separate. Would want a second spec on `ScrollView` rather than on the
+  axis, since it is the viewport's behaviour and not the value's.
 - **No smoothing for a discrete mouse wheel.** Every input lands 1:1, which is
   right for a trackpad and leaves a notched wheel a little steppy. Smoothing
   only that needs the two devices told apart — `deltaMode` and delta size are

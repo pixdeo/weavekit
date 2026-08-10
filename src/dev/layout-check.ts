@@ -1591,14 +1591,19 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     check('an animated axis consumes a wheel past the top', regionFor({ y }).scroll(0, -50), true)
     check('and goes out of range', y() < 0, true)
 
-    // The band is Apple's curve: it leaves the edge at 0.55 and asymptotes at
-    // one viewport, so 50 past the top of a 100-tall one gives 50*0.55/(...).
+    // Apple's curve, capped: it leaves the edge at 0.55 and runs out at 0.3 of
+    // the viewport, which is 30 for this 100-tall one.
     check('the first push is resisted from the outset', y() > -50 * 0.55, true)
     const first = y()
     regionFor({ y }).scroll(0, -50)
     check('a second push accumulates onto the first', y() < first, true)
     check('but bands harder, so it adds less', y() > first * 2, true)
-    check('and it can never exceed one viewport', y() > -100, true)
+
+    // However hard it is pushed, the stretch stops well short of the content
+    // sliding off the viewport.
+    for (let i = 0; i < 50; i++) regionFor({ y }).scroll(0, -500)
+    check('the stretch is capped at a fraction of the viewport', y() > -30, true)
+    check('and gets close to that cap under a big push', y() < -29, true)
 
     // Let the band actually get there, so the bounce is a real journey back
     // rather than a retarget from a value that never left zero.

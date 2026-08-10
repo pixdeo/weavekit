@@ -466,28 +466,40 @@ sounds — a trackpad is how most people will meet a scroll view, and a bounce
 only touch devices can see is a bounce nobody sees. The wheel has no release
 event to hang it off, though: there is no "the fingers left the trackpad", and
 a momentum phase keeps delivering deltas long after they did. So the end of a
-wheel gesture is inferred from an 80ms gap. That is the one piece of this that
+wheel gesture is inferred from a 50ms gap. That is the one piece of this that
 is a heuristic rather than a consequence, and it is kept short because every
-millisecond of it is dead time the content spends stretched and still, which
-reads as sluggishness far more than the spring does.
+millisecond of it is dead time the content spends stretched and still — a pause
+before the return reads as slowness far more readily than the return itself.
+Tripping it early is a mild failure, the content simply starts back and the
+next notch stretches it again, and that is what lets it be this short.
 
-The resistance curve is Apple's:
+The resistance curve is Apple's, with its far end brought in:
 
 ```
-resist(x) = (1 - 1 / (x·c/d + 1)) · d        c = 0.55, d = the viewport
+resist(x) = c·x / (x·c/L + 1)      c = 0.55,  L = viewport · 0.3
 ```
 
-Both of its ends are load-bearing. It leaves the edge at slope `c`, so
-resistance is there from the very first pixel instead of arriving later, and it
-asymptotes at exactly `d` — one viewport — so the content can be pushed to the
-edge of the screen and no further.
+Its two ends are what make it feel like anything, and they are independent —
+the slope at zero is `c` whatever `L` is:
 
-Scaling the whole thing by `1/c`, which is an easy thing to do by accident,
-ruins both ends at once: it starts at slope 1, which is no resistance at all,
-and runs out at 1.8 viewports, which reads as the content coming loose. If a
-band feels wrong, check its two ends before reaching for the spring — the curve
-is geometry and the spring is only the journey back, and they are worth keeping
-independent so that each can be judged on its own.
+- **It leaves the edge at `c`**, so resistance is there from the very first
+  pixel instead of arriving later. This is the "it should brake progressively"
+  end.
+- **It runs out at `L`**, which caps how far the content can ever be pushed.
+
+Apple's own `L` is a full viewport, which is right for a finger: the pull is
+bounded by how far a hand travels across glass, so the far end of the curve is
+somewhere you never reach. A wheel has no such bound — it can pump deltas all
+day and walk straight up the asymptote — and a stretch of a whole viewport
+reads as the content having come loose. Hence 0.3. It is the one place this
+departs from Apple, and it departs because the input does.
+
+Scaling the whole curve by `1/c` instead, which is an easy thing to do by
+accident, ruins both ends at once: it starts at slope 1, which is no resistance
+at all, and runs out 1.8× further than intended. If a band feels wrong, check
+its two ends before reaching for the spring. The curve is geometry and the
+spring is only the journey back; keeping them independent is what lets either
+be judged on its own.
 
 The inverse of that curve matters as much as the curve. Grabbing content
 mid-bounce has to resume from the raw distance the visible offset stands for;

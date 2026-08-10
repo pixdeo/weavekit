@@ -12,7 +12,7 @@ export const scrolling: Example = {
     'everything still scrolls, just without momentum.',
 
   code: `const y = animated(0, spring({
-  response: 300, damping: 1,
+  response: 190, damping: 1,
 }))
 
 const row = (i) =>

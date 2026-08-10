@@ -48,22 +48,38 @@ const FLING_MIN = 60
 const RUBBER = 0.55
 
 /**
+ * How far past an end the stretch can ever reach, as a fraction of the
+ * viewport.
+ *
+ * Apple's curve runs out at one whole viewport, which is right for a finger:
+ * the pull is bounded by how far a hand can travel across the glass, so the
+ * far end of the curve is somewhere you never actually get to. A wheel has no
+ * such bound. It can pump deltas all day and walk straight up the asymptote,
+ * and a stretch of a full viewport reads as the content having come loose.
+ *
+ * So the curve is capped well short of that. It is the one place this departs
+ * from Apple, and it departs because the input does.
+ */
+const BAND_LIMIT = 0.3
+
+/**
  * Raw overshoot in, resisted overshoot out. Both positive.
  *
- *   resist(x) = (1 - 1 / (x·c/d + 1)) · d
+ *   resist(x) = c·x / (x·c/L + 1)        L = dim · BAND_LIMIT
  *
- * Apple's curve, and the two numbers that make it feel right are its ends. It
- * leaves the edge at slope `c`, so resistance is there from the very first
- * unit rather than arriving later, and it asymptotes at exactly `d` — one
- * viewport — so the content can be pulled to the edge of the screen and no
- * further, however hard it is pushed.
+ * Apple's curve, with its far end brought in. The two ends are what make it
+ * feel like anything, and they are independent: the slope at zero is `c` for
+ * every `L`, so the cap changes where the stretch runs out without touching
+ * how it begins.
  *
  * Scaling the whole thing by `1/c` instead, which is an easy thing to do by
- * accident, ruins both: it starts at slope 1, which is no resistance at all,
- * and runs out at 1.8 viewports, which reads as the content coming loose.
+ * accident, ruins both at once: it starts at slope 1, which is no resistance
+ * at all, and runs out 1.8× further than intended.
  */
-const resist = (over: number, dim: number): number =>
-  dim <= 0 ? 0 : (1 - 1 / ((over * RUBBER) / dim + 1)) * dim
+const resist = (over: number, dim: number): number => {
+  const limit = dim * BAND_LIMIT
+  return limit <= 0 ? 0 : (RUBBER * over) / ((over * RUBBER) / limit + 1)
+}
 
 /**
  * The exact inverse. Grabbing the content mid-bounce has to resume from the
@@ -71,11 +87,11 @@ const resist = (over: number, dim: number): number =>
  * drag resists an already-resisted value and the content jumps.
  */
 const unresist = (shown: number, dim: number): number => {
-  if (dim <= 0) return 0
-  // The asymptote is one viewport; nothing at or beyond it came from a finite
-  // push.
-  if (shown >= dim) return Infinity
-  return ((1 / (1 - shown / dim) - 1) * dim) / RUBBER
+  const limit = dim * BAND_LIMIT
+  if (limit <= 0) return 0
+  // Nothing at or beyond the cap came from a finite push.
+  if (shown >= limit) return Infinity
+  return shown / (RUBBER * (1 - shown / limit))
 }
 
 /** The offset to display for a raw one, banded past either end. */
@@ -122,11 +138,13 @@ const release = (axis: ScrollAxis | null, velocity: number, max: number): void =
  * they did. So the end of the gesture has to be inferred from a gap.
  *
  * Every millisecond of it is dead time the content spends stretched and still
- * before it starts back, which reads as sluggishness far more than the spring
- * does. So: as short as it can be without tripping over the gap between two
- * notches of a real mouse wheel, which is a few frames.
+ * before it starts back, and that pause is read as slowness far more readily
+ * than the journey itself. So: as short as it can be without tripping over the
+ * gap between two notches, which is about three frames. Trip it anyway and the
+ * failure is mild — the content starts back and the next notch stretches it
+ * again — which is what lets it be this short.
  */
-const WHEEL_IDLE = 80
+const WHEEL_IDLE = 50
 
 /**
  * Pending bounce-backs, keyed by the axis they will move.

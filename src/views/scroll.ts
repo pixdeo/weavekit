@@ -131,20 +131,45 @@ const release = (axis: ScrollAxis | null, velocity: number, max: number): void =
 }
 
 /**
- * How long after the last wheel event the content springs back, in ms.
+ * How long the band holds before springing back, in ms, timed from the last
+ * delta that still looked like a hand — *not* from the last delta of any kind.
  *
- * A wheel has no release to hook onto — there is no event for "the fingers
- * left the trackpad", and a momentum phase keeps delivering deltas long after
- * they did. So the end of the gesture has to be inferred from a gap.
+ * This distinction is the whole thing. A wheel has no release to hook onto:
+ * there is no event for "the fingers left the trackpad", and macOS keeps
+ * delivering momentum deltas for a second or more after they did. Waiting for
+ * those to stop means waiting out the entire tail — measured at 2.6s of the
+ * content sitting stretched and motionless after a flick whose fingers lifted
+ * at 120ms. That is not a slow spring, it is a stalled one, and no amount of
+ * tuning the spring reaches it.
  *
- * Every millisecond of it is dead time the content spends stretched and still
- * before it starts back, and that pause is read as slowness far more readily
- * than the journey itself. So: as short as it can be without tripping over the
- * gap between two notches, which is about three frames. Trip it anyway and the
- * failure is mild — the content starts back and the next notch stretches it
- * again — which is what lets it be this short.
+ * Timed from the crossing instead, the deadline is bounded by construction.
+ * Momentum still arrives; it just no longer postpones anything.
  */
-const WHEEL_IDLE = 50
+const BOUNCE_AFTER = 50
+
+/**
+ * Fraction of an overscroll's strongest delta below which later ones are read
+ * as momentum rather than as a hand.
+ *
+ * Momentum decays geometrically and a hand does not. That is the only signal
+ * available — the platform exposes no phase on a wheel event — and it is
+ * enough. A delta below this fraction of the hardest one in the episode is a
+ * tail and must not postpone the return; at or above it the wheel is still
+ * being driven, and the band holds for as long as it is.
+ *
+ * Set high on purpose. Momentum falls off by about 6% a frame, so a strict
+ * threshold is crossed in a few frames while a hand — which does not decay at
+ * all — stays above it indefinitely. Lowering it is not more forgiving, it is
+ * slower: at 0.5 a tail keeps the band stretched for a further 190ms, which is
+ * most of the delay this exists to remove.
+ */
+const TAIL = 0.8
+
+interface Bounce {
+  timer: ReturnType<typeof setTimeout>
+  /** Strongest delta seen since the content left the range. */
+  peak: number
+}
 
 /**
  * Pending bounce-backs, keyed by the axis they will move.
@@ -152,31 +177,58 @@ const WHEEL_IDLE = 50
  * A `ScrollViewImpl` is rebuilt every frame, so it is the wrong place to keep
  * anything that has to outlive one. The axis signal is the stable object in
  * play — the caller owns it and it is the same object across frames — so it is
- * what the timer hangs off.
+ * what this hangs off.
  */
-const bounces = new WeakMap<Animated, ReturnType<typeof setTimeout>>()
+const bounces = new WeakMap<Animated, Bounce>()
 
 const cancelBounce = (axis: ScrollAxis | null): void => {
   if (!axis || !flingable(axis)) return
-  const pending = bounces.get(axis)
-  if (pending === undefined) return
-  clearTimeout(pending)
+  const live = bounces.get(axis)
+  if (!live) return
+  clearTimeout(live.timer)
   bounces.delete(axis)
 }
 
-const scheduleBounce = (axis: Animated, max: number): void => {
-  cancelBounce(axis)
-  bounces.set(
-    axis,
-    setTimeout(() => {
+/**
+ * Starts, or puts off, the return. `magnitude` is the size of the delta that
+ * just landed, which is what decides between the two.
+ */
+const armBounce = (axis: Animated, max: number, magnitude: number): void => {
+  const live = bounces.get(axis)
+  const peak = Math.max(magnitude, live?.peak ?? 0)
+
+  // Decayed well below this episode's peak: momentum, so leave the countdown
+  // where it is. Waiting for the tail to stop is what left the content sitting
+  // stretched for over two seconds after a flick.
+  if (live && magnitude < peak * TAIL) {
+    live.peak = peak
+    return
+  }
+
+  if (live) clearTimeout(live.timer)
+  bounces.set(axis, {
+    peak,
+    timer: setTimeout(() => {
       bounces.delete(axis)
       // Where it is *heading*, not where it is. A wheel lands immediately so
       // the two agree, but a fling taken over by a wheel may still be in
       // flight, and it is the destination that decides whether to bounce.
       const at = axis.target()
       if (at < 0 || at > max) axis.set(clamp(at, 0, max), 0)
-    }, WHEEL_IDLE),
-  )
+    }, BOUNCE_AFTER),
+  })
+}
+
+/**
+ * True while the content is outside the content and heading back in — that is,
+ * a bounce is under way. A fling does not qualify: it runs from inside the
+ * range, so a wheel can still take one over.
+ */
+const bouncingBack = (axis: ScrollAxis, max: number): boolean => {
+  if (!flingable(axis) || !axis.animating()) return false
+  const at = axis()
+  const to = axis.target()
+  return (at < 0 || at > max) && to >= 0 && to <= max
 }
 
 const BAR_THICKNESS = 4
@@ -279,11 +331,27 @@ class ScrollViewImpl extends View {
   private wheel(axis: ScrollAxis, delta: number, max: number, dim: number): boolean {
     const elastic = flingable(axis) && max > 0
     const from = axis()
+
+    // Once the bounce is under way, momentum that is still pushing outwards is
+    // swallowed rather than allowed to stretch the band again — otherwise the
+    // tail of a trackpad flick fights the return the whole way home. Consumed,
+    // not rejected: handing it to an enclosing viewport would scroll that one
+    // instead, which is worse than doing nothing.
+    if (elastic && bouncingBack(axis, max)) {
+      const outwards = from < 0 ? delta < 0 : delta > 0
+      if (outwards) return true
+    }
+
     const next = band(unband(from, max, dim) + delta, max, dim, elastic)
     if (next === from) return false
     put(axis, next)
-    // Rescheduled on every delta, so it fires once the wheel goes quiet.
-    if (elastic) scheduleBounce(axis, max)
+
+    if (elastic) {
+      const outside = next < 0 || next > max
+      // Back inside under its own steam: there is nothing left to return to.
+      if (outside) armBounce(axis, max, Math.abs(delta))
+      else cancelBounce(axis)
+    }
     return true
   }
 

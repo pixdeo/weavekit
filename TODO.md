@@ -70,9 +70,10 @@ map and a release process.
   content never overshoots on its own. A spring with damping below 1 already
   overshoots and the viewport already renders out-of-range offsets, so this is
   a matter of choosing the target, not new machinery. `views/scroll.ts`.
-- **The end of a wheel gesture is a 50ms timeout.** There is no event for a
-  trackpad being released, and momentum deltas keep arriving after it, so the
-  bounce is scheduled on a gap. It is the one heuristic in the scrolling path.
+- **The end of a wheel gesture is inferred, not observed.** There is no event
+  for a trackpad being released, so momentum is told from a hand by the fact
+  that it decays. It is the one heuristic in the scrolling path, and it would
+  become unnecessary if the platform ever exposed a phase on `WheelEvent`.
   `views/scroll.ts`.
 - **The bounce shares the axis's spring with the fling.** One spec covers
   both, so a deliberately lazy fling drags the bounce out with it. Apple keeps

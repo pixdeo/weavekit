@@ -466,12 +466,29 @@ sounds — a trackpad is how most people will meet a scroll view, and a bounce
 only touch devices can see is a bounce nobody sees. The wheel has no release
 event to hang it off, though: there is no "the fingers left the trackpad", and
 a momentum phase keeps delivering deltas long after they did. So the end of a
-wheel gesture is inferred from a 50ms gap. That is the one piece of this that
-is a heuristic rather than a consequence, and it is kept short because every
-millisecond of it is dead time the content spends stretched and still — a pause
-before the return reads as slowness far more readily than the return itself.
-Tripping it early is a mild failure, the content simply starts back and the
-next notch stretches it again, and that is what lets it be this short.
+wheel gesture has to be inferred. That is the one piece of this that is a
+heuristic rather than a consequence, and it is worth spelling out because the
+obvious version of it is wrong.
+
+Waiting for the deltas to stop does not work. macOS keeps delivering momentum
+for a second or more after the fingers have left the trackpad, so a countdown
+restarted by each delta waits out the entire tail: measured at **2.6 seconds**
+of content sitting stretched and motionless after a flick whose fingers lifted
+at 120ms. No amount of tuning the spring reaches that, because the spring has
+not been asked to run yet.
+
+What separates the two is that **momentum decays and a hand does not**. A delta
+below 80% of the strongest one since the content left the range is a tail, and
+a tail does not postpone anything; at or above it the wheel is still being
+driven, and the band holds for as long as it is. Momentum falls off about 6% a
+frame, so it crosses that line within a few frames, while a steady push never
+does. The band then returns 50ms after the last delta that still looked like a
+hand — 256ms after a flick, against a tail that went on for 3.5 seconds.
+
+Once the return is under way, outward deltas are consumed and dropped rather
+than allowed to stretch the band again; otherwise the rest of the tail fights
+it the whole way home. An inward delta is a real intention and takes over
+immediately.
 
 The resistance curve is Apple's, with its far end brought in:
 

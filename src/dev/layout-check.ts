@@ -1556,7 +1556,8 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     return running
   }
   /** Real time, because the bounce is scheduled on a real timer. */
-  const idle = () => new Promise((r) => setTimeout(r, 160))
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const idle = () => pause(160)
 
   const rows = VStack({ spacing: 0 }, ...Array.from({ length: 10 }, () => Rectangle().frame(100, 20)))
   const regionFor = (axis: Parameters<typeof ScrollView>[0], child = rows) => {
@@ -1627,6 +1628,67 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     check('and does not band', y.target(), 0)
     await idle()
     check('nor schedule a bounce', y.animating(), false)
+  }
+
+  /* Momentum must not postpone the return, and a hand must.
+
+     A wheel has no release event, so the two are told apart by the only thing
+     that separates them: momentum decays and a hand does not. Getting this
+     wrong is not subtle — waiting out a trackpad's tail leaves the content
+     stretched and motionless for seconds. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    // A flick: one hard delta, then a tail decaying 6% a frame, fed for far
+    // longer than the deadline.
+    regionFor({ y }).scroll(0, -60)
+    let d = -60
+    for (let i = 0; i < 14; i++) {
+      d *= 0.94
+      regionFor({ y }).scroll(0, d)
+      await pause(15)
+    }
+    check('a decaying tail does not postpone the return', y.target(), 0)
+  }
+
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    // A hand: the same delta over and over, for just as long.
+    for (let i = 0; i < 10; i++) {
+      regionFor({ y }).scroll(0, -60)
+      await pause(20)
+    }
+    check('a steady push holds the band open', y.target() < 0, true)
+    await idle()
+    check('and it returns once that stops', y.target(), 0)
+  }
+
+  /* Once the return is under way, the rest of the tail is dropped rather than
+     allowed to stretch the band again — otherwise it fights the whole way. */
+  {
+    const y = animated(0, spring({ response: 600, damping: 1 }))
+    regionFor({ y }).scroll(0, -60)
+    await pause(120)
+    check('the bounce is under way', y.animating() && y() < 0, true)
+
+    const mid = y()
+    check('outward momentum is still consumed', regionFor({ y }).scroll(0, -60), true)
+    check('but moves nothing', y(), mid)
+
+    // Inward is a real intention, and takes over immediately.
+    regionFor({ y }).scroll(0, 30)
+    check('an inward wheel takes the bounce over', y() > mid, true)
+  }
+
+  /* Scrolling back inside under its own steam leaves nothing to return to. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    regionFor({ y }).scroll(0, -40)
+    check('out of range', y() < 0, true)
+    // Enough to come back inside, not so much that it bands off the far end.
+    regionFor({ y }).scroll(0, 60)
+    check('and back inside', y() > 0 && y() < 100, true)
+    await idle()
+    check('no bounce was left pending', y.animating(), false)
   }
 
   /* A press cancels a pending wheel bounce rather than letting it fire under

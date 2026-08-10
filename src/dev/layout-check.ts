@@ -637,7 +637,10 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   // Content is 200 tall in a 100 viewport: the thumb is 50 tall with 50 of
   // travel, so a pixel of thumb is two pixels of content.
   const drag = (ty: number) =>
-    ({ x: 0, y: ty, dx: 0, dy: ty, tx: 0, ty, startX: 0, startY: 0, pointerType: 'mouse' }) as const
+    ({
+      x: 0, y: ty, dx: 0, dy: ty, tx: 0, ty,
+      startX: 0, startY: 0, vx: 0, vy: 0, pointerType: 'mouse',
+    }) as const
   thumb!.drag!.onStart!(drag(0))
   thumb!.drag!.onMove!(drag(10))
   check('dragging the thumb scrolls twice as far', y(), 20)
@@ -918,7 +921,10 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     check('the pan contributes no cursor', pan.cursor === undefined, true)
 
     const drag = (ty: number) =>
-      ({ x: 0, y: ty, dx: 0, dy: ty, tx: 0, ty, startX: 0, startY: 0, pointerType: 'touch' }) as const
+      ({
+      x: 0, y: ty, dx: 0, dy: ty, tx: 0, ty,
+      startX: 0, startY: 0, vx: 0, vy: 0, pointerType: 'touch',
+    }) as const
 
     // Content is 200 tall in a 100 viewport, so the offset runs 0..100.
     pan.drag!.onStart!(drag(0))
@@ -1284,6 +1290,153 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     flushFrame()
     check('settling redraws at the target', approx(ops[0].rect.x), 290)
     mounted.unmount()
+  }
+}
+
+/* 18. Fling: the release velocity `mount` measures, and the coast it drives. */
+{
+  const { mount } = await import('../core/mount')
+  const { ScrollView } = await import('../views/scroll')
+  const { advanceAnimations, animated, project, spring } = await import('../core/animation')
+  const { signal } = await import('../core/signal')
+
+  const tick = (ms = 16): boolean => {
+    const running = advanceAnimations(advanceClock(ms))
+    flushFrame()
+    return running
+  }
+
+  /* Velocity is measured by the mount loop from the event timestamps, so this
+     half has to go through it. */
+  {
+    type Pointer = (x: number, y: number, id: number, type: string, t: number) => void
+    const fns = {
+      down: (() => {}) as Pointer,
+      move: (() => {}) as Pointer,
+      up: (() => {}) as Pointer,
+    }
+    const backend = {
+      el: {},
+      resize: () => {},
+      draw: () => {},
+      onPointerDown: (cb: Pointer) => {
+        fns.down = cb
+      },
+      onPointerMove: (cb: Pointer) => {
+        fns.move = cb
+      },
+      onPointerUp: (cb: Pointer) => {
+        fns.up = cb
+      },
+      capturePointer: () => {},
+      releasePointer: () => {},
+      onWheel: () => {},
+      setCursor: () => {},
+      destroy: () => {},
+    }
+    const host = { clientWidth: 200, clientHeight: 200, replaceChildren: () => {} }
+
+    let released: { vx: number; vy: number } | null = null
+    const mounted = mount(
+      host as unknown as HTMLElement,
+      backend as unknown as Parameters<typeof mount>[1],
+      () =>
+        Rectangle()
+          .fill('#111')
+          .expand()
+          .onDrag({
+            onEnd: (d) => {
+              released = { vx: Math.round(d.vx), vy: Math.round(d.vy) }
+            },
+          }),
+    )
+
+    // 100px right and 50px down over 100ms is 1000 and 500 units per second.
+    fns.down(10, 10, 1, 'mouse', 1000)
+    fns.move(60, 35, 1, 'mouse', 1050)
+    fns.up(110, 60, 1, 'mouse', 1100)
+    check('release velocity is measured over the trailing window', released, {
+      vx: 1000,
+      vy: 500,
+    })
+
+    // The same flick, then held still for longer than the window before
+    // letting go. Releasing from a standstill must not throw anything.
+    fns.down(10, 10, 2, 'mouse', 2000)
+    fns.move(110, 10, 2, 'mouse', 2100)
+    fns.move(110, 10, 2, 'mouse', 2300)
+    fns.up(110, 10, 2, 'mouse', 2400)
+    check('a pause before release reports a standstill', released, { vx: 0, vy: 0 })
+
+    // Only samples inside the window count, so a long slow drag reports the
+    // speed it ended at, not its average.
+    fns.down(10, 10, 3, 'mouse', 3000)
+    fns.move(20, 10, 3, 'mouse', 3500)
+    fns.move(120, 10, 3, 'mouse', 3550)
+    fns.up(120, 10, 3, 'mouse', 3550)
+    check('older samples fall out of the window', released, { vx: 2000, vy: 0 })
+
+    mounted.unmount()
+  }
+
+  /* Projection: where a release coasts to. */
+  {
+    check('a standstill projects to where it already is', project(40, 0), 40)
+    check('a faster flick lands further', project(0, 2000) > project(0, 1000), true)
+    check('direction is preserved', project(0, -1000) < 0, true)
+    // 1000 units/s is 1 unit/ms, and 0.998/(1 - 0.998) is 499 of them.
+    check('projection matches the deceleration rate', Math.round(project(0, 1000)), 499)
+  }
+
+  /* The coast itself. A plain signal cannot fling — there is nothing to hand
+     a velocity to — so the offset has to be an animated() for it to happen. */
+  {
+    const rows = VStack({ spacing: 0 }, ...Array.from({ length: 10 }, () => Rectangle().frame(100, 20)))
+    // Content 200 tall in a 100 viewport, so the offset runs 0..100.
+    const place = (axis: Parameters<typeof ScrollView>[0]) => {
+      const ctx = new Ctx()
+      const v = ScrollView(axis, rows)
+      v.measure({ w: 100, h: 100 }, ctx)
+      v.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+      return ctx
+    }
+    const panOf = (ctx: InstanceType<typeof Ctx>) =>
+      ctx.hits.find((h) => h.drag?.pointerTypes)!.drag!
+    const flick = (vy: number) => ({
+      x: 0, y: 0, dx: 0, dy: 0, tx: 0, ty: 0,
+      startX: 0, startY: 0, vx: 0, vy, pointerType: 'touch' as const,
+    })
+
+    const plain = signal(0)
+    panOf(place({ y: plain })).onEnd!(flick(-800))
+    check('a plain signal does not fling', plain(), 0)
+
+    // Dragging up (negative vy) scrolls down, so the offset goes positive.
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    panOf(place({ y })).onEnd!(flick(-800))
+    check('an animated offset flings', y.animating(), true)
+    check('it heads where the flick projects, clamped to the content', y.target(), 100)
+
+    let frames = 0
+    while (tick() && frames < 400) frames++
+    check('the fling comes to rest', y.animating(), false)
+    check('and lands on the end of the content', Math.round(y()), 100)
+    check('the driver stopped rather than spinning', frames < 400, true)
+
+    // Too slow to be a flick: letting go leaves the content exactly there.
+    y.settle(40)
+    panOf(place({ y })).onEnd!(flick(-30))
+    check('a slow release does not fling', [y.animating(), y()], [false, 40])
+
+    // A press during a coast stops it where the content currently is.
+    panOf(place({ y })).onEnd!(flick(-800))
+    tick()
+    tick()
+    const caught = y()
+    check('the coast is under way', y.animating() && caught > 40, true)
+    panOf(place({ y })).onStart!(flick(0))
+    check('pressing stops the fling dead', y.animating(), false)
+    check('and leaves the content where it was caught', y(), caught)
   }
 }
 

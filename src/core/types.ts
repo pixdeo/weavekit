@@ -106,6 +106,17 @@ export interface Drag {
   ty: number
   startX: number
   startY: number
+  /**
+   * Speed over the last few samples, in units per second — what a fling hands
+   * to `animated().set(to, velocity)`.
+   *
+   * Measured over a short trailing window rather than from the last two
+   * points, so it survives a jittery final sample and, more importantly,
+   * reports ~0 when the pointer was held still before release. A release from
+   * a standstill must not fling, however fast the drag was a moment earlier.
+   */
+  vx: number
+  vy: number
   /** What is driving this gesture. Constant for its whole lifetime. */
   pointerType: PointerType
 }

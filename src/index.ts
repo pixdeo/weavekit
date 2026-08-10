@@ -12,6 +12,7 @@ export {
   easeOut,
   linear,
   mixColor,
+  project,
   spring,
   tween,
 } from './core/animation'
@@ -38,7 +39,7 @@ export { Text, Code, MONO } from './views/text'
 export type { TextOpts } from './views/text'
 export { VStack, HStack, ZStack } from './views/stack'
 export { ScrollView } from './views/scroll'
-export type { ScrollOffset } from './views/scroll'
+export type { ScrollAxis, ScrollOffset } from './views/scroll'
 export { Spacer } from './views/spacer'
 export { Rectangle, RoundedRect, Circle, Ellipse, Shape } from './views/shape'
 export { Button } from './views/button'

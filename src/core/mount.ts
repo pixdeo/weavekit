@@ -37,6 +37,8 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     startY: number
     lastX: number
     lastY: number
+    /** Recent positions, oldest first, for the release velocity. */
+    trail: { t: number; x: number; y: number }[]
   }
 
   /**
@@ -105,17 +107,42 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     return null
   }
 
-  const sample = (g: Gesture, x: number, y: number): Drag => ({
-    x,
-    y,
-    dx: x - g.lastX,
-    dy: y - g.lastY,
-    tx: x - g.startX,
-    ty: y - g.startY,
-    startX: g.startX,
-    startY: g.startY,
-    pointerType: g.pointerType,
-  })
+  /**
+   * How far back release velocity looks, in milliseconds. Long enough that a
+   * single jittery sample cannot dominate, short enough that a pointer held
+   * still before release measures as stopped — which is the case that matters,
+   * because a fling from a standstill is the one thing users never forgive.
+   */
+  const VELOCITY_WINDOW = 100
+
+  const record = (g: Gesture, t: number, x: number, y: number): void => {
+    g.trail.push({ t, x, y })
+    // Keep the last sample outside the window is *not* what we want: dropping
+    // it is what makes a pause read as a stop.
+    let stale = 0
+    while (stale < g.trail.length - 1 && g.trail[stale].t < t - VELOCITY_WINDOW) stale++
+    if (stale > 0) g.trail.splice(0, stale)
+  }
+
+  const sample = (g: Gesture, x: number, y: number): Drag => {
+    const first = g.trail[0]
+    const last = g.trail[g.trail.length - 1]
+    // Zero when the window holds one sample, or several from the same instant.
+    const span = (last.t - first.t) / 1000
+    return {
+      x,
+      y,
+      dx: x - g.lastX,
+      dy: y - g.lastY,
+      tx: x - g.startX,
+      ty: y - g.startY,
+      startX: g.startX,
+      startY: g.startY,
+      vx: span > 0 ? (last.x - first.x) / span : 0,
+      vy: span > 0 ? (last.y - first.y) / span : 0,
+      pointerType: g.pointerType,
+    }
+  }
 
   const accepts = (drag: DragHandlers, type: PointerType): boolean =>
     drag.pointerTypes == null || drag.pointerTypes.includes(type)
@@ -138,7 +165,7 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     else if (pointer) updateCursor(pointer.x, pointer.y)
   }
 
-  backend.onPointerDown((x, y, id, rawType) => {
+  backend.onPointerDown((x, y, id, rawType, t = 0) => {
     const type = pointerTypeOf(rawType)
     if (type === 'mouse') pointer = { x, y }
 
@@ -157,6 +184,7 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
         startY: y,
         lastX: x,
         lastY: y,
+        trail: [{ t, x, y }],
       }
       gestures.set(id, g)
       backend.capturePointer(id)
@@ -170,11 +198,12 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     backend.setCursor(hit?.cursor ?? 'default')
   }
 
-  backend.onPointerMove((x, y, id, rawType) => {
+  backend.onPointerMove((x, y, id, rawType, t = 0) => {
     if (pointerTypeOf(rawType) === 'mouse') pointer = { x, y }
 
     const g = gestures.get(id)
     if (g) {
+      record(g, t, x, y)
       const drag = sample(g, x, y)
       g.lastX = x
       g.lastY = y
@@ -184,11 +213,12 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     refreshCursor()
   })
 
-  backend.onPointerUp((x, y, id, rawType) => {
+  backend.onPointerUp((x, y, id, rawType, t = 0) => {
     if (pointerTypeOf(rawType) === 'mouse') pointer = { x, y }
 
     const g = gestures.get(id)
     if (!g) return
+    record(g, t, x, y)
     const drag = sample(g, x, y)
     // Dropped before the handler runs: `onEnd` may mount, unmount or otherwise
     // reason about what is still in flight, and this pointer no longer is.

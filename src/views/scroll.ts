@@ -3,11 +3,42 @@ import { View } from '../core/view'
 import type { Proposal, Rect, Size } from '../core/types'
 import { clamp, concrete } from '../core/types'
 import type { Signal } from '../core/signal'
+import { project, type Animated } from '../core/animation'
+
+/**
+ * One scrollable axis. A plain signal is enough to scroll; an `animated()` one
+ * additionally flings, because only it can be handed a release velocity.
+ */
+export type ScrollAxis = Signal<number> | Animated
 
 export interface ScrollOffset {
   /** Provide a signal per scrollable axis. An absent axis does not scroll. */
-  x?: Signal<number>
-  y?: Signal<number>
+  x?: ScrollAxis
+  y?: ScrollAxis
+}
+
+/** `settle` is on `Animated` and on nothing else. */
+const flingable = (axis: ScrollAxis): axis is Animated => 'settle' in axis
+
+/**
+ * Slowest release that still throws the content, in units per second. Below
+ * it a release is a stop: letting go of a slow drag should leave the content
+ * exactly where the finger left it, not creep on for another moment.
+ */
+const FLING_MIN = 60
+
+/**
+ * Coasts the offset on after a release.
+ *
+ * `velocity` is the offset's own, already negated from the pointer's. The
+ * landing point is projected from it and then clamped, so a hard flick near
+ * the end stops at the end rather than animating to somewhere it cannot go —
+ * and the spring still carries the release speed into that shorter distance,
+ * which is what makes hitting the end feel like arriving rather than a cut.
+ */
+const fling = (axis: ScrollAxis | null, velocity: number, max: number): void => {
+  if (!axis || !flingable(axis) || Math.abs(velocity) < FLING_MIN) return
+  axis.set(clamp(project(axis(), velocity), 0, max), velocity)
 }
 
 const BAR_THICKNESS = 4
@@ -122,6 +153,9 @@ class ScrollViewImpl extends View {
       drag: {
         pointerTypes: ['touch', 'pen'],
         onStart: () => {
+          // A press during a fling stops it dead, where the content is now.
+          if (panX && flingable(panX)) panX.settle(panX())
+          if (panY && flingable(panY)) panY.settle(panY())
           fromX = panX?.() ?? 0
           fromY = panY?.() ?? 0
         },
@@ -130,6 +164,10 @@ class ScrollViewImpl extends View {
         onMove: (d) => {
           panX?.set(clamp(fromX - d.tx, 0, maxX))
           panY?.set(clamp(fromY - d.ty, 0, maxY))
+        },
+        onEnd: (d) => {
+          fling(panX, -d.vx, maxX)
+          fling(panY, -d.vy, maxY)
         },
       },
     })

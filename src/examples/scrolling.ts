@@ -7,9 +7,13 @@ export const scrolling: Example = {
     'A ScrollView is a viewport onto a taller child. The offset lives in a signal you own, ' +
     'so scroll position is ordinary state — readable, restorable, animatable. Clipping is a ' +
     'separate modifier: .clip() confines both drawing and hit testing to a view’s rect. ' +
-    'Scroll the list, then try removing the ScrollView wrapper.',
+    'Because the offset here is an animated() rather than a plain signal, it can be handed ' +
+    'a release velocity — so a flick on a touchscreen coasts. Swap it for signal(0) and ' +
+    'everything still scrolls, just without momentum.',
 
-  code: `const y = signal(0)
+  code: `const y = animated(0, spring({
+  response: 420, damping: 1,
+}))
 
 const row = (i) =>
   HStack({ spacing: 10, align: 'center' },

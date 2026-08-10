@@ -1,7 +1,19 @@
 import type { DrawOp, PointerType } from '../core/types'
 
-/** Everything a backend reports about a pointer event. */
-export type PointerCallback = (x: number, y: number, id: number, type: PointerType) => void
+/**
+ * Everything a backend reports about a pointer event.
+ *
+ * `t` is the event's own timestamp in milliseconds, not the current time:
+ * release velocity is measured from it, and events can be coalesced or
+ * delivered late, so reading a clock on arrival would smear the numbers.
+ */
+export type PointerCallback = (
+  x: number,
+  y: number,
+  id: number,
+  type: PointerType,
+  t: number,
+) => void
 
 /**
  * The layout engine never talks to a canvas or the DOM — it emits DrawOps.

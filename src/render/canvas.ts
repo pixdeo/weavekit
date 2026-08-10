@@ -20,7 +20,7 @@ export function createCanvasBackend(): Backend {
 
   const report = (cb: PointerCallback, e: PointerEvent): void => {
     const r = canvas.getBoundingClientRect()
-    cb(e.clientX - r.left, e.clientY - r.top, e.pointerId, pointerTypeOf(e.pointerType))
+    cb(e.clientX - r.left, e.clientY - r.top, e.pointerId, pointerTypeOf(e.pointerType), e.timeStamp)
   }
 
   return {

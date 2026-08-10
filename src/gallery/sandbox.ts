@@ -19,6 +19,7 @@ import {
   easeOut,
   linear,
   mixColor,
+  project,
   signal,
   spring,
   tween,
@@ -55,6 +56,7 @@ export const SANDBOX = {
   easeOut,
   easeInOut,
   mixColor,
+  project,
 } as const
 
 export const SANDBOX_NAMES = Object.keys(SANDBOX)

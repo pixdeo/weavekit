@@ -16,10 +16,6 @@ throwaway descriptions with no identity at all, so that is a real change to
 
 Left behind by the animation work:
 
-- **No momentum or fling.** `animated().set(to, velocity)` accepts a release
-  velocity and a spring carries it, so the animation half is done — but
-  `onEnd` still reports no velocity, so nothing can hand one over. See *No
-  inertia* below; it is now a drag-layer gap, not an animation one.
 - **Only `.offset()` and `.opacity()` read lazily.** Layout-affecting
   modifiers — `frame`, `padding`, stack spacing — still take plain numbers, so
   animating a size means wrapping it in a `component()`. Widening them wants
@@ -65,11 +61,12 @@ map and a release process.
 - **No drag threshold, and no way to cancel.** A press starts the gesture
   immediately, so a view cannot both tap and drag on the same press; there is
   also no Escape-to-revert. Both belong in `mount`, not in each handler.
-- **No inertia.** A drag stops dead on release. `onEnd` gets no velocity, so a
-  handler cannot fling even though `animated().set(to, velocity)` is waiting
-  for one. `mount` would have to keep a short history of samples and fit a
-  velocity over the last few, discarding a stale tail so a pause before
-  release reads as a stop. `core/mount.ts`.
+- **Only `ScrollView` flings.** `Drag` carries a release velocity and
+  `project()` turns it into a landing point, but nothing else uses either. A
+  draggable object thrown across a canvas still stops dead.
+- **No rubber-banding.** A fling into the end of the content clamps to it.
+  There is no overscroll and no bounce back, which is the other half of what
+  makes a touch surface feel physical. `views/scroll.ts`.
 - **No keyboard, no focus.** No focus ring, no tab order, no arrow-key or
   page-up/down scrolling.
 - **No accessibility.** A canvas is opaque to screen readers. The usual answer

@@ -365,8 +365,7 @@ The part that matters in use is that a spring **carries its velocity across a
 retarget**. Set a new target mid-flight and the path bends; it does not
 restart. That is the whole reason to prefer a spring over an easing curve for
 anything a finger is driving. `set(to, velocity)` also injects a velocity,
-which is where a fling would hand over its release speed — the drag layer does
-not measure one yet.
+which is how a fling hands over its release speed — see [Momentum](#momentum).
 
 Tweens have no velocity state, so a retarget re-runs the curve from wherever
 the value currently is. Continuous in value, discontinuous in speed. That is
@@ -405,6 +404,39 @@ type generic would buy a runtime type switch and a worse signature for the
 case that is 95% of the traffic. The mix is in sRGB, like CSS has always done
 it — not perceptually even, but it is what the numbers in a palette were
 picked against.
+
+### Momentum
+
+A fling is two halves that meet here. The drag layer measures how fast the
+pointer was moving when it was released; the animation layer knows how to
+carry a velocity. Neither is much use alone.
+
+Every `Drag` sample carries `vx`/`vy` in units per second, measured over a
+100ms trailing window rather than from the last two points. The window is the
+whole trick: it survives one jittery final sample, and — the case that
+actually matters — a pointer held still before release measures as stopped, so
+letting go of a paused drag throws nothing.
+
+A velocity does not name a target, though, and a spring animates *to* one. So
+`project()` closes the gap: it integrates an exponential deceleration to the
+point a flick would coast to.
+
+```ts
+const y = animated(0, spring({ response: 420, damping: 1 }))
+
+// on release, with `v` the offset's velocity
+y.set(clamp(project(y(), v), 0, max), v)
+```
+
+Clamping the projected point rather than the motion is what makes hitting the
+end of a list feel like arriving: the spring still gets the release velocity,
+it just has less distance to spend it over.
+
+`ScrollView` does exactly this, and it is why an axis may be an `animated()`
+as well as a plain signal — only an `animated()` can be handed a velocity. A
+plain signal still scrolls; it simply stops when the finger does. Pressing
+again during a coast settles it where it is, so the content never slides out
+from under a finger that has caught it.
 
 ## Clipping and scrolling
 

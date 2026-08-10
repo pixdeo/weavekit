@@ -28,7 +28,7 @@ export function createDomBackend(outline = false): Backend {
 
   const report = (cb: PointerCallback, e: PointerEvent): void => {
     const r = root.getBoundingClientRect()
-    cb(e.clientX - r.left, e.clientY - r.top, e.pointerId, pointerTypeOf(e.pointerType))
+    cb(e.clientX - r.left, e.clientY - r.top, e.pointerId, pointerTypeOf(e.pointerType), e.timeStamp)
   }
 
   return {

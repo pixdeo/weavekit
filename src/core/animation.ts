@@ -314,6 +314,26 @@ export function animated(initial: number, spec: AnimationSpec = spring()): Anima
   return read
 }
 
+/**
+ * Where a flick coasts to a stop, given the speed it was released at.
+ *
+ * This is the missing half of a fling. A spring animates *to* a target, and a
+ * release velocity does not name one — so something has to turn "moving this
+ * fast" into "heading there". Exponential deceleration integrates to a finite
+ * distance, and that distance is all of it:
+ *
+ *   ScrollView({ y }, rows)   // y is an animated()
+ *   y.set(clamp(project(y(), v), 0, max), v)
+ *
+ * `velocity` is units per second, matching `Animated.velocity()`. The default
+ * rate is UIScrollView's, which is what a flick has felt like on a touchscreen
+ * for fifteen years; lower it for a surface that should stop sooner.
+ */
+export const project = (position: number, velocity: number, decelerationRate = 0.998): number => {
+  const rate = clamp(decelerationRate, 0, 0.9999)
+  return position + (velocity / 1000) * (rate / (1 - rate))
+}
+
 const HEX = /^#(?:([0-9a-f]{3})|([0-9a-f]{6}))$/i
 
 const channels = (c: string): [number, number, number] | null => {

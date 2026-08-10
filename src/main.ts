@@ -81,6 +81,17 @@ function resultFor(example: Example): Compiled {
 // The gallery is built with the toolkit. Every panel is a component, so typing
 // in the editor rebuilds the preview and leaves the rest cached.
 
+const REPO_URL = 'https://github.com/pixdeo/weavekit'
+
+/** The header's GitHub link — a tap region like any gallery control. */
+const githubButton = (): View =>
+  Text('GitHub ↗')
+    .font({ size: 12, weight: 600 })
+    .foreground('#d4d4d8')
+    .padding({ t: 4, b: 4, l: 9, r: 9 })
+    .background(RoundedRect(7).fill('#27272a'))
+    .onTap(() => window.open(REPO_URL, '_blank', 'noopener'))
+
 const header = (): View =>
   component('header', () =>
     HStack(
@@ -92,6 +103,7 @@ const header = (): View =>
       Text('declarative layout → draw ops → canvas')
         .font({ size: 12 })
         .foreground('#52525b'),
+      githubButton(),
     )
       .padding({ t: 10, b: 10, l: 16, r: 16 })
       .background(Rectangle().fill('#111114')),

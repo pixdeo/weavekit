@@ -114,7 +114,8 @@ still reach the canvas, and re-enable it on the elements that need it.
 
 `npm run dev` opens a gallery: a sidebar of examples, each showing its source
 next to the live result. It starts on a hello-world intro and works up through
-stacks, modifier order, flexibility and interaction, and ends on
+stacks, the Buttons and Text components, modifier order, flexibility and
+interaction, and ends on
 [embedding the toolkit in a page](#use-it-in-your-own-page).
 
 **The code is editable.** Type in the left panel and the canvas on the right

@@ -2,6 +2,8 @@ import type { Example } from './types'
 import { hello } from './hello'
 import { dsl } from './dsl'
 import { stacks } from './stacks'
+import { buttons } from './buttons'
+import { text } from './text'
 import { modifiers } from './modifiers'
 import { flexibility } from './flexibility'
 import { interaction } from './interaction'
@@ -18,6 +20,8 @@ export const examples: Example[] = [
   hello,
   dsl,
   stacks,
+  buttons,
+  text,
   modifiers,
   flexibility,
   interaction,

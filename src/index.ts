@@ -1,8 +1,21 @@
 export { View } from './core/view'
+export type { Dynamic } from './core/view'
 export { Ctx } from './core/ctx'
 export { mount } from './core/mount'
 export { signal } from './core/signal'
 export type { Signal } from './core/signal'
+export {
+  advanceAnimations,
+  animated,
+  easeIn,
+  easeInOut,
+  easeOut,
+  linear,
+  mixColor,
+  spring,
+  tween,
+} from './core/animation'
+export type { Animated, AnimationSpec, Easing, SpringOpts, TweenOpts } from './core/animation'
 export { component, ComponentCache } from './core/component'
 export type { CacheStats } from './core/component'
 export type {

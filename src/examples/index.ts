@@ -7,6 +7,7 @@ import { interaction } from './interaction'
 import { dragging } from './dragging'
 import { multitouch } from './multitouch'
 import { scrolling } from './scrolling'
+import { animation } from './animation'
 import { embedding } from './embedding'
 
 /** Gallery order. The first entry is what a newcomer lands on. */
@@ -19,6 +20,7 @@ export const examples: Example[] = [
   dragging,
   multitouch,
   scrolling,
+  animation,
   embedding,
 ]
 

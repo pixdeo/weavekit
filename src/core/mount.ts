@@ -3,6 +3,7 @@ import type { View } from './view'
 import type { Drag, DragHandlers, Hit, PointerType, ScrollRegion } from './types'
 import { hitTestable, pointerTypeOf } from './types'
 import { subscribe } from './signal'
+import { advanceAnimations } from './animation'
 import { ComponentCache, type CacheStats } from './component'
 import type { Backend } from '../render/backend'
 
@@ -54,9 +55,13 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
 
   const cache = new ComponentCache()
 
-  const frame = (): void => {
+  const frame = (now = 0): void => {
     queued = false
     if (!alive) return
+
+    // Before anything is built: the tree about to be measured has to see the
+    // values as of this timestamp, not the previous frame's.
+    const animating = advanceAnimations(now)
 
     const w = host.clientWidth
     const h = host.clientHeight
@@ -76,6 +81,11 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     backend.draw(ctx.ops)
     // The layout may have moved under a stationary pointer.
     refreshCursor()
+
+    // An animation that ticked without changing its value writes nothing, so
+    // it notifies nobody and would strand itself one frame short. The driver's
+    // own answer is what keeps the loop alive.
+    if (animating) invalidate()
   }
 
   const invalidate = (): void => {

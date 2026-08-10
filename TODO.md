@@ -5,10 +5,28 @@ the README [Roadmap](README.md#roadmap); this is the full list.
 
 ## Next up
 
-**1. Animation.** Views have no identity across frames, so nothing can be
-interpolated. Needs structural identity plus an explicit `.id()`, then a diff
-of rects between frames. Momentum scrolling and view transitions both fall out
-of it. Touches `core/component.ts` and `core/mount.ts`.
+**1. View transitions.** Animatable state now exists: `core/animation.ts` has
+easings, springs, `animated()` and a driver, and an `animated()` value is a
+signal whose writes interpolate, so anything that reads one already animates.
+What does not exist is interpolating *layout*. A view sliding from where it was
+last frame to where it is now needs structural identity plus an explicit
+`.id()`, then a diff of rects between frames — and views are deliberately
+throwaway descriptions with no identity at all, so that is a real change to
+`core/component.ts`, not a modifier.
+
+Left behind by the animation work:
+
+- **No momentum or fling.** `animated().set(to, velocity)` accepts a release
+  velocity and a spring carries it, so the animation half is done — but
+  `onEnd` still reports no velocity, so nothing can hand one over. See *No
+  inertia* below; it is now a drag-layer gap, not an animation one.
+- **Only `.offset()` and `.opacity()` read lazily.** Layout-affecting
+  modifiers — `frame`, `padding`, stack spacing — still take plain numbers, so
+  animating a size means wrapping it in a `component()`. Widening them wants
+  one consistent decision across all of them.
+- **Numbers only.** `mixColor()` covers colours by composition; there is no
+  interpolation of rects, insets or anything else, and adding it should stay
+  composition rather than a generic value type.
 
 **2. Camera.** Pan and zoom as a transform applied to the root rect, with zoom
 anchored at the cursor. Draw ops and hit rects both need the transform, which
@@ -48,7 +66,10 @@ map and a release process.
   immediately, so a view cannot both tap and drag on the same press; there is
   also no Escape-to-revert. Both belong in `mount`, not in each handler.
 - **No inertia.** A drag stops dead on release. `onEnd` gets no velocity, so a
-  handler cannot fling. Falls out of animation (item 1).
+  handler cannot fling even though `animated().set(to, velocity)` is waiting
+  for one. `mount` would have to keep a short history of samples and fit a
+  velocity over the last few, discarding a stale tail so a pause before
+  release reads as a stop. `core/mount.ts`.
 - **No keyboard, no focus.** No focus ring, no tab order, no arrow-key or
   page-up/down scrolling.
 - **No accessibility.** A canvas is opaque to screen readers. The usual answer

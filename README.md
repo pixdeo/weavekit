@@ -310,6 +310,102 @@ A `ScrollView` uses both halves of this. Its bars are real thumbs you can drag,
 sized to a grabbable target rather than to the 4px they draw; and the content
 itself pans under a finger, which the next section covers.
 
+## Animation
+
+`animated()` is a signal whose writes take time:
+
+```ts
+const x = animated(0, spring({ response: 400, damping: 0.7 }))
+const fade = animated(1, tween({ duration: 250, easing: easeOut }))
+
+x.set(280)          // interpolates toward 280 instead of jumping
+x.settle()          // lands on it now, at rest
+x.animating()       // true while in flight
+```
+
+Reading it registers a dependency exactly like a signal read, which is why
+there is no animation support anywhere else in the toolkit. Whatever reads an
+animated value is invalidated as it moves; a cached component that does not
+read it stays cached; the frame loop is the same frame loop. Nothing about the
+view tree had to learn what an animation is.
+
+This is deliberately *not* "animate the layout". Interpolating a rect from
+where a view was last frame to where it is now needs views to have identity
+across frames, and here they are throwaway descriptions with no identity at
+all — see the [roadmap](#roadmap). What you get is the layer underneath that
+one, which is the layer momentum, transitions and easing actually run on.
+
+A plain number is captured when the view is built, so a value that moves every
+frame has to be read lazily. `.offset()` and `.opacity()` take a thunk for
+this, the same way `Text(() => …)` already does; anything else goes inside a
+`component()`, which re-reads when it rebuilds:
+
+```ts
+Circle().frame(30, 30).offset(() => x(), 0).opacity(() => fade())
+
+component('bar', () => Rectangle().frame(w(), 46))   // frame() takes numbers
+```
+
+### Springs, and why response and damping
+
+Springs are parameterised as **response** (milliseconds, roughly how long the
+move takes) and **damping ratio** (1 stops dead on the target, below 1
+overshoots) rather than as stiffness, damping and mass. The three physical
+constants are coupled — raising the mass slows the spring *and* makes it
+bouncier — so tuning one property always damages another. Response and damping
+ratio are the same system written in the two terms anyone actually wants to
+choose, and they are orthogonal. Mass disappears because it is redundant with
+response once the system is expressed through its natural frequency.
+
+Each step is the closed-form solution of the damped oscillator rather than a
+numerical integration, so a step of any size is exact: a 200ms stall produces
+the same state as ten 20ms frames, with no drift and no sub-stepping.
+
+The part that matters in use is that a spring **carries its velocity across a
+retarget**. Set a new target mid-flight and the path bends; it does not
+restart. That is the whole reason to prefer a spring over an easing curve for
+anything a finger is driving. `set(to, velocity)` also injects a velocity,
+which is where a fling would hand over its release speed — the drag layer does
+not measure one yet.
+
+Tweens have no velocity state, so a retarget re-runs the curve from wherever
+the value currently is. Continuous in value, discontinuous in speed. That is
+inherent to tweens, not an oversight: use one for a fade, a spring for a move.
+
+### The driver
+
+Animations are stepped by a module-level driver:
+
+```ts
+advanceAnimations(nowMs)   // -> true while anything is still in flight
+```
+
+The timestamp is injected, never read from a clock inside. That is what lets
+the headless checks step animations with fake time and assert real numbers,
+and it is what a record/replay layer would need later. `mount` calls it once
+per frame with the `requestAnimationFrame` timestamp and keeps requesting
+frames while it answers true — the boolean is load-bearing, because a tick
+that happens to land on the same value writes nothing and would otherwise
+strand the animation a frame short of its target.
+
+A single step is capped at 64ms. A backgrounded tab delivers one frame after
+an arbitrary gap, and integrating that honestly would teleport everything.
+
+### Colours
+
+`mixColor(from, to, t)` blends two hex colours, so a colour animation is one
+animated number and a mapping:
+
+```ts
+Rectangle().fill(mixColor('#2563eb', '#f43f5e', t()))
+```
+
+Kept as a plain function rather than folded into `animated`: making the value
+type generic would buy a runtime type switch and a worse signature for the
+case that is 95% of the traffic. The mix is in sRGB, like CSS has always done
+it — not perceptually even, but it is what the numbers in a palette were
+picked against.
+
 ## Clipping and scrolling
 
 `.clip()` confines a view to its own rect — everything it draws and everything
@@ -415,8 +511,10 @@ the demo publishes them as `window.canvasUIStats` / `window.canvasUIHistory`.
 In rough order of value. [TODO.md](TODO.md) has the full list, including the
 known gaps behind each item.
 
-1. **Animation.** Give views structural identity (plus an explicit `.id()`),
-   diff rects between frames, interpolate. Momentum scrolling falls out of it.
+1. **View transitions.** Animatable state exists — see
+   [Animation](#animation) — but interpolating *layout* does not. A view
+   sliding from where it was last frame to where it is now needs structural
+   identity plus an explicit `.id()`, then a diff of rects between frames.
 2. **Camera.** Pan/zoom as a transform applied to the root rect, with zoom
    anchored at the cursor. Pinch-to-zoom lands here: pointers are already
    tracked concurrently, but without a transform there is nothing to drive.

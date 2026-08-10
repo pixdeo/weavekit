@@ -1777,5 +1777,58 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   }
 }
 
+/* 21. The native-scroll prototype lays out like any viewport with no DOM
+       layer set, and a cached subtree replays its claims. */
+{
+  const { NativeScrollView } = await import('../views/native-scroll')
+  const { signal } = await import('../core/signal')
+  const { View } = await import('../core/view')
+  const { ComponentCache, component } = await import('../core/component')
+
+  const rows = VStack({ spacing: 0 }, ...Array.from({ length: 10 }, () => Rectangle().frame(100, 20)))
+
+  /* Headless there is no layer and nothing DOM happens: the view is layout
+     only, and greedy like ScrollView. */
+  {
+    const y = signal(60)
+    const ctx = new Ctx()
+    const v = NativeScrollView({ y }, rows)
+    check('a native viewport fills what it is offered', v.measure({ w: 100, h: 100 }, ctx), {
+      w: 100,
+      h: 100,
+    })
+    v.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+    check('places its child offset by the signal', round(ctx.ops[0].rect), { x: 0, y: -60, w: 100, h: 20 })
+    check('clipped to the viewport', ctx.ops[0].clip, { x: 0, y: 0, w: 100, h: 100 })
+    check('and registers no wheel region of its own', ctx.scrolls.length, 0)
+  }
+
+  /* A DOM-backed view claims its element during place; on a cache hit the
+     claim has to be replayed, or the element looks gone the very next frame. */
+  {
+    class Claimer extends View {
+      measure(): { w: number; h: number } {
+        return { w: 10, h: 10 }
+      }
+      place(_rect: { x: number; y: number; w: number; h: number }, ctx: InstanceType<typeof Ctx>): void {
+        ctx.claim('token')
+      }
+    }
+
+    const cache = new ComponentCache()
+    const pass = (): InstanceType<typeof Ctx> => {
+      const ctx = new Ctx(cache)
+      cache.beginFrame()
+      const v = component('claimer', () => new Claimer())
+      v.measure({ w: 10, h: 10 }, ctx)
+      v.place({ x: 0, y: 0, w: 10, h: 10 }, ctx)
+      cache.sweep()
+      return ctx
+    }
+    check('a claim registers on a fresh place', pass().claims, ['token'])
+    check('and replays out of the cache', pass().claims, ['token'])
+  }
+}
+
 console.log(failures === 0 ? '\nall layout checks passed' : `\n${failures} check(s) failed`)
 if (failures > 0) process.exitCode = 1

@@ -12,6 +12,7 @@ import {
   createCanvasBackend,
   createDomBackend,
   mount,
+  setNativeScrollLayer,
   signal,
 } from './index'
 import type { View } from './core/view'
@@ -234,6 +235,9 @@ const overlay = document.getElementById('overlay') as HTMLElement
 const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-backend]'))
 
 const editor = createEditor(overlay, onEdit)
+// The native-scroll prototype's hidden scrollers live in the same overlay as
+// the editor: exactly over the canvas, inert to the pointer themselves.
+setNativeScrollLayer(overlay)
 
 let mounted: Mounted | null = null
 

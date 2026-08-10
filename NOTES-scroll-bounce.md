@@ -93,7 +93,13 @@ In rough order of how much it would buy:
    either. Cost: the offset stops being ours, which fights the design — scroll
    position is supposed to be ordinary state a caller owns — and nested
    viewports get complicated. Probably still the right answer, and worth
-   prototyping before more tuning.
+   prototyping before more tuning. **Prototyped:** `src/views/native-scroll.ts`
+   (example `native-scroll` shows the three flavours side by side). The offset
+   stays a caller-owned signal — the hidden scroller only reports into it — so
+   the design cost is lower than feared. The real gaps: the overlay swallows
+   presses meant for the content, a viewport whose content fits keeps the
+   wheel instead of chaining out, and the band's visibility depends on the
+   engine reporting out-of-range offsets mid-bounce.
 3. **Predicting the tail rather than detecting it.** Momentum's decay rate is
    near-constant per platform. Fitting the curve after two or three deltas
    gives both an immediate classification *and* a prediction of the remaining

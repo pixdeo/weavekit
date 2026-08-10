@@ -23,6 +23,29 @@ export class Ctx {
   /** Current clip, already intersected with every enclosing one. */
   clip: Rect | null = null
 
+  /**
+   * Tokens claimed by DOM-backed views during this pass. A DOM element lined
+   * up with a laid-out rect — a hidden scroller, an overlaid editor — is not
+   * rebuilt every frame the way ops are, so it needs another way to know it is
+   * still in the tree: its view claims it during `place`, and whatever went
+   * unclaimed can be swept by an `onPassEnd` callback once the pass ends.
+   * `mount` calls `endPass` once per frame.
+   */
+  claims: unknown[] = []
+  private passEnd: (() => void)[] = []
+
+  claim(token: unknown): void {
+    this.claims.push(token)
+  }
+
+  onPassEnd(cb: () => void): void {
+    this.passEnd.push(cb)
+  }
+
+  endPass(): void {
+    for (const cb of this.passEnd) cb()
+  }
+
   constructor(readonly cache?: ComponentCache) {}
 
   withEnv<T>(patch: Partial<Env>, fn: () => T): T {

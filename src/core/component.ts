@@ -34,6 +34,7 @@ interface Entry {
   ops: DrawOp[] | null
   hits: Hit[] | null
   scrolls: ScrollRegion[] | null
+  claims: unknown[] | null
 }
 
 const isStale = (entry: Entry): boolean => {
@@ -96,6 +97,7 @@ export class ComponentCache {
         ops: null,
         hits: null,
         scrolls: null,
+        claims: null,
       }
       this.entries.set(key, e)
     }
@@ -148,6 +150,7 @@ class ComponentView extends View {
     entry.ops = null
     entry.hits = null
     entry.scrolls = null
+    entry.claims = null
     cache.stats.built++
     return { entry, view: entry.view }
   }
@@ -179,12 +182,14 @@ class ComponentView extends View {
     }
 
     const key = rectKey(rect, ctx.env)
-    if (entry.ops && entry.hits && entry.scrolls && entry.placeKey === key) {
+    if (entry.ops && entry.hits && entry.scrolls && entry.claims && entry.placeKey === key) {
       for (const op of entry.ops) ctx.ops.push(op)
       for (const hit of entry.hits) ctx.hits.push(hit)
       // Scroll regions have to be replayed too, or a cached subtree would stop
-      // responding to the wheel.
+      // responding to the wheel. Claims likewise: a DOM-backed view would look
+      // gone on the very frame after it placed.
       for (const region of entry.scrolls) ctx.scrolls.push(region)
+      for (const claim of entry.claims) ctx.claims.push(claim)
       ctx.cache!.stats.reusedPlace++
       return
     }
@@ -192,11 +197,13 @@ class ComponentView extends View {
     const opStart = ctx.ops.length
     const hitStart = ctx.hits.length
     const scrollStart = ctx.scrolls.length
+    const claimStart = ctx.claims.length
     trackInto(entry.deps, () => view.place(rect, ctx))
     restamp(entry)
     entry.ops = ctx.ops.slice(opStart)
     entry.hits = ctx.hits.slice(hitStart)
     entry.scrolls = ctx.scrolls.slice(scrollStart)
+    entry.claims = ctx.claims.slice(claimStart)
     entry.placeKey = key
     ctx.cache!.stats.placed++
   }

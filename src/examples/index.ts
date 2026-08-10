@@ -7,6 +7,7 @@ import { interaction } from './interaction'
 import { dragging } from './dragging'
 import { multitouch } from './multitouch'
 import { scrolling } from './scrolling'
+import { nativeScroll } from './native-scroll'
 import { animation } from './animation'
 import { embedding } from './embedding'
 
@@ -20,6 +21,7 @@ export const examples: Example[] = [
   dragging,
   multitouch,
   scrolling,
+  nativeScroll,
   animation,
   embedding,
 ]

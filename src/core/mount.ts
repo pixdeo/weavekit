@@ -74,6 +74,7 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
 
     root.measure({ w, h }, ctx)
     root.place({ x: 0, y: 0, w, h }, ctx)
+    ctx.endPass()
 
     cache.sweep()
 

@@ -21,9 +21,9 @@ VStack({ spacing: 8, align: 'leading' },
   .background(RoundedRect(12).fill('#18181b'))
 ```
 
-**Status: early.** The layout engine, the two renderers, scrolling, dragging
-and the invalidation model work and are covered by checks. There is no npm
-package yet and no animation. See [Roadmap](#roadmap).
+**Status: early.** The layout engine, the two renderers, scrolling, dragging,
+multi-touch and the invalidation model work and are covered by checks. There is
+no npm package yet and no animation. See [Roadmap](#roadmap).
 
 ## Project status and contributing
 
@@ -276,11 +276,39 @@ per move. The tree is rebuilt under the pointer while the drag runs — often
 consequence is that a drag handler must not read this frame's layout; it reads
 what it closed over at `onStart`.
 
-The gesture also owns the cursor for its duration, so it does not flicker as
-the pointer crosses other regions.
+### Several pointers at once
 
-A `ScrollView`'s bars use this: each one is a real thumb you can drag, sized to
-a grabbable target rather than to the 4px it draws.
+Gestures are keyed by pointer id. Each pointer hit-tests at its own pointerdown,
+takes its own capture and runs its own handlers, so two fingers drive two
+objects — or the same object twice, which is the handler's problem and not the
+loop's. A `pointercancel` terminates that pointer's gesture and leaves the
+others alone, and unmounting releases whatever captures are still held.
+
+The cursor is the exception, because there is only one of it. Touch and pen
+gestures never set it: nothing is drawn under a finger, and the mouse may be
+hovering something else entirely. Among mouse gestures the first to start keeps
+the cursor until it ends, so a stray second pointer cannot yank the feedback out
+of a drag in flight. With no mouse gesture running it follows hover, as before.
+
+### Pointer type
+
+Every sample carries `pointerType`, one of `'mouse' | 'touch' | 'pen'` — a
+backend that cannot classify a pointer reports `'mouse'`. It is constant for the
+lifetime of a gesture.
+
+A handler can also refuse a type outright:
+
+```ts
+viewport.onDrag({ pointerTypes: ['touch', 'pen'], onMove: pan })
+```
+
+A press of any other type is **not** consumed. The hit test skips that entry and
+carries on into whatever sits beneath it, so the same rect can pan under a
+finger and stay inert under a mouse.
+
+A `ScrollView` uses both halves of this. Its bars are real thumbs you can drag,
+sized to a grabbable target rather than to the 4px they draw; and the content
+itself pans under a finger, which the next section covers.
 
 ## Clipping and scrolling
 
@@ -317,6 +345,21 @@ Two details that matter once viewports nest:
   consume the wheel, and it chains outwards. Without this, an outer viewport
   with nothing to scroll silently swallows every wheel event aimed at an inner
   one.
+
+A finger dragging the content pans it 1:1 — drag down, the content comes down.
+A mouse does not, because a mouse press on content is a press: taps and text
+selection have to keep working. That is a `pointerTypes: ['touch', 'pen']` drag
+registered over the viewport before its child, so draggable content and the
+thumbs both win the press ahead of it, and with no cursor of its own, so a mouse
+hovering the content sees no change.
+
+Chaining works differently for a pan than for the wheel, and only half of it
+survives. A viewport with nothing to move registers no pan hit at all, so the
+press falls through to an enclosing viewport that does have room — that is the
+wheel's rule. But a pan that runs out of room *mid-gesture* cannot hand over: it
+already owns the pointer, and the browser has no way to transfer a capture. It
+clamps and holds until release. Chaining a live drag outwards would need the
+gesture to be re-targetable, which capture deliberately prevents.
 
 ## State and invalidation
 
@@ -375,7 +418,8 @@ known gaps behind each item.
 1. **Animation.** Give views structural identity (plus an explicit `.id()`),
    diff rects between frames, interpolate. Momentum scrolling falls out of it.
 2. **Camera.** Pan/zoom as a transform applied to the root rect, with zoom
-   anchored at the cursor.
+   anchored at the cursor. Pinch-to-zoom lands here: pointers are already
+   tracked concurrently, but without a transform there is nothing to drive.
 3. **Spatial index for hit testing.** A quadtree once the scene passes a few
    hundred nodes; the current linear scan is fine below that.
 4. **Virtualised lists.** `ScrollView` measures and places its whole child, so

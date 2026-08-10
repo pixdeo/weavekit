@@ -79,6 +79,16 @@ export type DrawShape =
  */
 export type DrawOp = DrawShape & { clip?: Rect }
 
+export type PointerType = 'mouse' | 'touch' | 'pen'
+
+/**
+ * Anything a backend cannot classify is a mouse: a synthetic or unlabelled
+ * pointer is far more likely to be a desktop one, and mouse is the type with
+ * no special affordances attached to it.
+ */
+export const pointerTypeOf = (v: string | undefined | null): PointerType =>
+  v === 'touch' || v === 'pen' ? v : 'mouse'
+
 /**
  * One sample of a drag, in root coordinates.
  *
@@ -96,6 +106,8 @@ export interface Drag {
   ty: number
   startX: number
   startY: number
+  /** What is driving this gesture. Constant for its whole lifetime. */
+  pointerType: PointerType
 }
 
 export interface DragHandlers {
@@ -103,6 +115,12 @@ export interface DragHandlers {
   onMove?(d: Drag): void
   /** Also fires when the gesture is cancelled, so it is safe to clean up here. */
   onEnd?(d: Drag): void
+  /**
+   * Restricts which pointers may start this gesture. A press of any other type
+   * falls through to whatever is beneath in the hit list, which is how a
+   * viewport can pan under a finger without stealing a mouse press.
+   */
+  pointerTypes?: PointerType[]
 }
 
 export interface Hit {

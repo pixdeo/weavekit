@@ -13,12 +13,13 @@ export type {
   Font,
   Hit,
   Insets,
+  PointerType,
   Proposal,
   Rect,
   ScrollRegion,
   Size,
 } from './core/types'
-export { clamp } from './core/types'
+export { clamp, pointerTypeOf } from './core/types'
 
 export { Text, Code, MONO } from './views/text'
 export type { TextOpts } from './views/text'
@@ -31,4 +32,4 @@ export { Button } from './views/button'
 
 export { createCanvasBackend } from './render/canvas'
 export { createDomBackend } from './render/dom'
-export type { Backend } from './render/backend'
+export type { Backend, PointerCallback } from './render/backend'

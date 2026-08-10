@@ -5,6 +5,7 @@ import { modifiers } from './modifiers'
 import { flexibility } from './flexibility'
 import { interaction } from './interaction'
 import { dragging } from './dragging'
+import { multitouch } from './multitouch'
 import { scrolling } from './scrolling'
 import { embedding } from './embedding'
 
@@ -16,6 +17,7 @@ export const examples: Example[] = [
   flexibility,
   interaction,
   dragging,
+  multitouch,
   scrolling,
   embedding,
 ]

@@ -1,7 +1,7 @@
 import { Ctx } from './ctx'
 import type { View } from './view'
-import type { Drag, Hit, ScrollRegion } from './types'
-import { hitTestable } from './types'
+import type { Drag, DragHandlers, Hit, PointerType, ScrollRegion } from './types'
+import { hitTestable, pointerTypeOf } from './types'
 import { subscribe } from './signal'
 import { ComponentCache, type CacheStats } from './component'
 import type { Backend } from '../render/backend'
@@ -26,23 +26,31 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
   let scrolls: ScrollRegion[] = []
   let queued = false
   let alive = true
+  /** Where the mouse last was. Fingers do not hover, so they never set it. */
   let pointer: { x: number; y: number } | null = null
 
-  /**
-   * The gesture in flight. It holds the `Hit` captured at pointerdown, not a
-   * lookup repeated per move: the tree is rebuilt under the pointer while the
-   * drag runs, and the whole point of capture is that the handler survives
-   * that. Handlers should therefore read `tx`/`ty` against state they closed
-   * over at `onStart`, not against this frame's layout.
-   */
-  let gesture: {
-    id: number
+  interface Gesture {
     hit: Hit
+    pointerType: PointerType
     startX: number
     startY: number
     lastX: number
     lastY: number
-  } | null = null
+  }
+
+  /**
+   * The gestures in flight, keyed by pointer id and in the order they started.
+   * Every pointer hit-tests, captures and runs its handlers on its own, so two
+   * fingers drive two objects — or the same object twice, which is the
+   * handler's problem, not this loop's.
+   *
+   * A gesture holds the `Hit` captured at pointerdown, not a lookup repeated
+   * per move: the tree is rebuilt under the pointer while the drag runs, and
+   * the whole point of capture is that the handler survives that. Handlers
+   * should therefore read `tx`/`ty` against state they closed over at
+   * `onStart`, not against this frame's layout.
+   */
+  const gestures = new Map<number, Gesture>()
 
   const cache = new ComponentCache()
 
@@ -66,9 +74,8 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     scrolls = ctx.scrolls
     backend.resize(w, h)
     backend.draw(ctx.ops)
-    // The layout may have moved under a stationary pointer. A drag in flight
-    // owns the cursor, so leave it alone.
-    if (pointer && !gesture) updateCursor(pointer.x, pointer.y)
+    // The layout may have moved under a stationary pointer.
+    refreshCursor()
   }
 
   const invalidate = (): void => {
@@ -88,25 +95,62 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     return null
   }
 
-  const sample = (x: number, y: number): Drag => ({
+  const sample = (g: Gesture, x: number, y: number): Drag => ({
     x,
     y,
-    dx: x - gesture!.lastX,
-    dy: y - gesture!.lastY,
-    tx: x - gesture!.startX,
-    ty: y - gesture!.startY,
-    startX: gesture!.startX,
-    startY: gesture!.startY,
+    dx: x - g.lastX,
+    dy: y - g.lastY,
+    tx: x - g.startX,
+    ty: y - g.startY,
+    startX: g.startX,
+    startY: g.startY,
+    pointerType: g.pointerType,
   })
 
-  backend.onPointerDown((x, y, id) => {
+  const accepts = (drag: DragHandlers, type: PointerType): boolean =>
+    drag.pointerTypes == null || drag.pointerTypes.includes(type)
+
+  /**
+   * However many pointers are down, there is one cursor, so it cannot simply
+   * follow "the gesture". Touch and pen gestures leave it alone: nothing is
+   * drawn under a finger, and the mouse may be hovering something else
+   * entirely. Among mouse gestures the first to start keeps it until it ends,
+   * so a stray second pointer cannot yank the feedback out of a live drag.
+   */
+  const cursorOwner = (): Gesture | null => {
+    for (const g of gestures.values()) if (g.pointerType === 'mouse') return g
+    return null
+  }
+
+  const refreshCursor = (): void => {
+    const owner = cursorOwner()
+    if (owner) backend.setCursor(owner.hit.cursor ?? 'default')
+    else if (pointer) updateCursor(pointer.x, pointer.y)
+  }
+
+  backend.onPointerDown((x, y, id, rawType) => {
+    const type = pointerTypeOf(rawType)
+    if (type === 'mouse') pointer = { x, y }
+
     // A tap and a drag are independent: a view can carry both, and a view that
-    // only taps is unaffected by a drag starting somewhere beneath it.
-    const draggable = gesture ? null : hitTest(x, y, (h) => h.drag != null)
+    // only taps is unaffected by a drag starting somewhere beneath it. A hit
+    // this pointer's type is not allowed to drive is skipped rather than
+    // consumed, so the scan continues into whatever sits below it.
+    const draggable = gestures.has(id)
+      ? null
+      : hitTest(x, y, (h) => h.drag != null && accepts(h.drag, type))
     if (draggable) {
-      gesture = { id, hit: draggable, startX: x, startY: y, lastX: x, lastY: y }
+      const g: Gesture = {
+        hit: draggable,
+        pointerType: type,
+        startX: x,
+        startY: y,
+        lastX: x,
+        lastY: y,
+      }
+      gestures.set(id, g)
       backend.capturePointer(id)
-      draggable.drag?.onStart?.(sample(x, y))
+      draggable.drag?.onStart?.(sample(g, x, y))
     }
     hitTest(x, y, (h) => h.handler != null)?.handler?.()
   })
@@ -116,30 +160,32 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     backend.setCursor(hit?.cursor ?? 'default')
   }
 
-  backend.onPointerMove((x, y, id) => {
-    pointer = { x, y }
+  backend.onPointerMove((x, y, id, rawType) => {
+    if (pointerTypeOf(rawType) === 'mouse') pointer = { x, y }
 
-    if (gesture && gesture.id === id) {
-      const drag = sample(x, y)
-      gesture.lastX = x
-      gesture.lastY = y
-      // The gesture keeps its own cursor wherever the pointer wanders.
-      backend.setCursor(gesture.hit.cursor ?? 'default')
-      gesture.hit.drag?.onMove?.(drag)
-      return
+    const g = gestures.get(id)
+    if (g) {
+      const drag = sample(g, x, y)
+      g.lastX = x
+      g.lastY = y
+      g.hit.drag?.onMove?.(drag)
     }
 
-    updateCursor(x, y)
+    refreshCursor()
   })
 
-  backend.onPointerUp((x, y, id) => {
-    if (!gesture || gesture.id !== id) return
-    const { hit } = gesture
-    const drag = sample(x, y)
-    gesture = null
+  backend.onPointerUp((x, y, id, rawType) => {
+    if (pointerTypeOf(rawType) === 'mouse') pointer = { x, y }
+
+    const g = gestures.get(id)
+    if (!g) return
+    const drag = sample(g, x, y)
+    // Dropped before the handler runs: `onEnd` may mount, unmount or otherwise
+    // reason about what is still in flight, and this pointer no longer is.
+    gestures.delete(id)
     backend.releasePointer(id)
-    hit.drag?.onEnd?.(drag)
-    updateCursor(x, y)
+    g.hit.drag?.onEnd?.(drag)
+    refreshCursor()
   })
 
   backend.onWheel((x, y, dx, dy) => {
@@ -165,6 +211,10 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
       alive = false
       unsubscribe()
       window.removeEventListener('resize', onResize)
+      // A capture outlives the element it was taken on, so anything still held
+      // has to go back before the backend does.
+      for (const id of gestures.keys()) backend.releasePointer(id)
+      gestures.clear()
       backend.destroy()
     },
   }

@@ -477,18 +477,30 @@ of content sitting stretched and motionless after a flick whose fingers lifted
 at 120ms. No amount of tuning the spring reaches that, because the spring has
 not been asked to run yet.
 
-What separates the two is that **momentum decays and a hand does not**. A delta
-below 80% of the strongest one since the content left the range is a tail, and
-a tail does not postpone anything; at or above it the wheel is still being
-driven, and the band holds for as long as it is. Momentum falls off about 6% a
-frame, so it crosses that line within a few frames, while a steady push never
-does. The band then returns 50ms after the last delta that still looked like a
-hand — 256ms after a flick, against a tail that went on for 3.5 seconds.
+What separates the two is that **momentum only ever decays**. The comparison
+has to be against the delta immediately before, though, not against the
+hardest one of the gesture. Measuring against the peak looks equivalent and is
+not: flick to the end and then keep pushing gently to hold the stretch open —
+which is what anyone does when they want to see what is under the edge — and
+every one of those small deliberate deltas is filed as a tail. The band lets go
+while the fingers are still moving, and there is nothing the user can do about
+it. Against the previous delta, gentle-but-steady is simply not decay.
 
-Once the return is under way, outward deltas are consumed and dropped rather
-than allowed to stretch the band again; otherwise the rest of the tail fights
-it the whole way home. An inward delta is a real intention and takes over
-immediately.
+So: three consecutive deltas each at least 3% down on the one before name the
+wheel as coasting, and anything 15% *up* on the one before takes it back —
+momentum never speeds up. Coasting collapses the countdown to 50ms; a hand
+holds the band for 180ms past its last delta, which is the price of there being
+no event for fingers that have stopped moving but not lifted. Measured: home
+399ms after a flick whose tail ran for 1.4 seconds, and a gentle push holds the
+stretch open indefinitely.
+
+The episode is not over when the content lands, either — the tail outlasts the
+trip home by a long way, and the first delta to arrive after the landing would
+otherwise start the whole thing again: stretch, return, stretch, a pulse every
+250ms for as long as the tail runs. That is the wobble the return is supposed
+not to have. Outward deltas are consumed and dropped until the wheel goes quiet
+altogether. An inward delta, or one clearly harder than the tail it arrived in,
+is a real intention and takes over immediately.
 
 The resistance curve is Apple's, with its far end brought in:
 
@@ -522,6 +534,15 @@ The inverse of that curve matters as much as the curve. Grabbing content
 mid-bounce has to resume from the raw distance the visible offset stands for;
 resisting an already-resisted value makes the content jump under the finger at
 the exact moment someone is trying to catch it.
+
+Its *slope* matters too, at the moment of release. A finger crossing the glass
+at 900 units a second is only moving banded content at a fraction of that — the
+band is between them — so handing the spring the finger's own velocity throws
+the content far past anywhere the band ever let it go, and the long trip back
+from there is exactly the overshooting, sluggish bounce a rubber band is not
+supposed to have. The release velocity goes through `resist'(x)` first, so the
+content leaves at the speed it was visibly moving at. Measured: 0% further than
+the release point, home in 200ms.
 
 Banding needs somewhere to spring back to, so it also applies only to an
 `animated()` axis. A plain signal stops at the end, as it always did.

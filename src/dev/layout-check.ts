@@ -1509,6 +1509,30 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     check('the bounce comes to rest', [y.animating(), y()], [false, 0])
   }
 
+  /* A release out of range leaves at the speed the content was visibly moving
+     at, which past an end is a fraction of the finger's. Handing the spring
+     the finger's own velocity throws the band far past anywhere it ever let
+     the content go, and the long trip back from there is what reads as an
+     overshooting, sluggish bounce. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    const pan = panOf(place({ y }))
+    pan.onStart!(at(0))
+    pan.onMove!(at(60))
+    const stretched = y()
+
+    // Still travelling hard outwards at the moment of release.
+    pan.onEnd!(at(60, 900))
+    let peak = stretched
+    let frames = 0
+    while (tick() && frames < 400) {
+      peak = Math.min(peak, y())
+      frames++
+    }
+    check('a fast release barely stretches the band further', peak > stretched * 1.25, true)
+    check('and still comes home', [y.animating(), Math.round(y())], [false, 0])
+  }
+
   /* Grabbing mid-bounce must not jump: the drag resumes from the raw distance
      the visible offset stands for, not from the resisted one. */
   {
@@ -1557,7 +1581,8 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   }
   /** Real time, because the bounce is scheduled on a real timer. */
   const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
-  const idle = () => pause(160)
+  /** Longer than the band holds after a delta that looked like a hand. */
+  const idle = () => pause(240)
 
   const rows = VStack({ spacing: 0 }, ...Array.from({ length: 10 }, () => Rectangle().frame(100, 20)))
   const regionFor = (axis: Parameters<typeof ScrollView>[0], child = rows) => {
@@ -1662,12 +1687,50 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     check('and it returns once that stops', y.target(), 0)
   }
 
+  /* Flick to the end, then keep pushing gently to hold the stretch open. The
+     small deltas are deliberate, and reading them against the flick that
+     preceded them files every one of them as a tail: the band lets go while
+     the fingers are still moving. Against the delta before it instead,
+     gentle-but-steady is not decay. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    regionFor({ y }).scroll(0, -60)
+    for (let i = 0; i < 8; i++) {
+      regionFor({ y }).scroll(0, -6)
+      await pause(16)
+    }
+    check('a gentle push after a hard one still reads as a hand', y.target() < 0, true)
+    await idle()
+    check('and lets go once it stops', y.target(), 0)
+  }
+
+  /* The tail outlasts the trip home by a long way. What is left of it once the
+     content has landed must not stretch the band all over again — that is a
+     wobble, not a bounce. */
+  {
+    const y = animated(0, spring({ response: 120, damping: 1 }))
+    regionFor({ y }).scroll(0, -60)
+    let d = -60
+    let landed = false
+    let wobbled = false
+    for (let i = 0; i < 40; i++) {
+      d *= 0.94
+      regionFor({ y }).scroll(0, d)
+      await pause(15)
+      tick(15)
+      if (!landed) landed = y() === 0 && !y.animating()
+      else if (y() < 0) wobbled = true
+    }
+    check('the content comes home while the tail is still running', landed, true)
+    check('and the rest of the tail never stretches it again', wobbled, false)
+  }
+
   /* Once the return is under way, the rest of the tail is dropped rather than
      allowed to stretch the band again — otherwise it fights the whole way. */
   {
     const y = animated(0, spring({ response: 600, damping: 1 }))
     regionFor({ y }).scroll(0, -60)
-    await pause(120)
+    await idle()
     check('the bounce is under way', y.animating() && y() < 0, true)
 
     const mid = y()

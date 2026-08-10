@@ -7,6 +7,13 @@ export interface Editor {
   setSource(source: string): void
   value(): string
   focus(): void
+  /**
+   * When a canvas overlay (the menu scrim) covers the editor, it must not
+   * grab the pointer or the caret: `readOnly` stops keystrokes, `blur`
+   * closes the on-screen keyboard, and hiding it keeps it from ghosting
+   * over the scrim. Idempotent.
+   */
+  setEnabled(enabled: boolean): void
   destroy(): void
 }
 
@@ -66,6 +73,7 @@ export function createEditor(
   })
 
   let placed: Rect | null = null
+  let enabled = true
 
   return {
     setRect(rect) {
@@ -92,6 +100,15 @@ export function createEditor(
 
     value: () => area.value,
     focus: () => area.focus(),
+
+    setEnabled(next) {
+      if (enabled === next) return
+      enabled = next
+      area.readOnly = !next
+      area.style.pointerEvents = next ? 'auto' : 'none'
+      area.style.visibility = next ? 'visible' : 'hidden'
+      if (!next) area.blur()
+    },
 
     destroy() {
       window.clearTimeout(timer)

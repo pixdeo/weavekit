@@ -7,6 +7,7 @@ import {
   Spacer,
   Text,
   VStack,
+  ZStack,
   clamp,
   component,
   createCanvasBackend,
@@ -22,6 +23,7 @@ import type { Mounted } from './core/mount'
 import { examples, type Example } from './examples'
 import { compileSource, type Compiled } from './gallery/compile'
 import { createEditor } from './gallery/editor'
+import { subscribe } from './core/signal'
 
 /* ------------------------------------------------------------------ state */
 
@@ -34,6 +36,16 @@ const sidebarWidth = signal(210)
 
 const SIDEBAR_MIN = 150
 const SIDEBAR_MAX = 360
+
+/** Host width in CSS pixels. Below WIDE_MIN the gallery goes narrow: the
+    sidebar hides behind a menu button and the panels stack vertically. */
+const WIDE_MIN = 900
+/** True while the host is on the wide side of the breakpoint. Components
+    depend on this boolean, not the width, so resizing within one side of the
+    breakpoint replays their cached subtrees instead of rebuilding them. */
+const wide = signal(window.innerWidth >= WIDE_MIN)
+const menuOpen = signal(false)
+const isWide = (): boolean => wide()
 
 /** Edited source per example id, in the style it was edited in. Absent means
     "still the original". */
@@ -92,22 +104,37 @@ const githubButton = (): View =>
     .background(RoundedRect(7).fill('#27272a'))
     .onTap(() => window.open(REPO_URL, '_blank', 'noopener'))
 
+const menuButton = (): View =>
+  Text('☰')
+    .font({ size: 15, weight: 600 })
+    .foreground('#d4d4d8')
+    .padding({ t: 2, b: 2, l: 9, r: 9 })
+    .background(RoundedRect(6).fill('#27272a'))
+    .onTap(() => menuOpen.set(true))
+
 const header = (): View =>
-  component('header', () =>
-    HStack(
+  component('header', () => {
+    const wide = isWide()
+    return HStack(
       { spacing: 10, align: 'center' },
+      ...(wide ? [] : [menuButton()]),
       Circle().fill('#22c55e').frame(9, 9),
       Text('WeaveKit').font({ size: 15, weight: 700 }).foreground('#fafafa'),
-      Text('examples').font({ size: 12 }).foreground('#71717a'),
+      ...(wide ? [Text('examples').font({ size: 12 }).foreground('#71717a')] : []),
       Spacer(),
-      Text('declarative layout → draw ops → canvas')
-        .font({ size: 12 })
-        .foreground('#52525b'),
+      // The tagline is decoration; on a narrow header it wraps into a mess.
+      ...(wide
+        ? [
+            Text('declarative layout → draw ops → canvas')
+              .font({ size: 12 })
+              .foreground('#52525b'),
+          ]
+        : []),
       githubButton(),
     )
       .padding({ t: 10, b: 10, l: 16, r: 16 })
-      .background(Rectangle().fill('#111114')),
-  )
+      .background(Rectangle().fill('#111114'))
+  })
 
 const navRow = (example: Example, i: number): View =>
   component(`nav:${i}`, () =>
@@ -192,7 +219,8 @@ const codePanel = (example: Example): View =>
   component(`code:${example.id}`, () => {
     revision() // the edited/pristine label and the reset button follow edits
     codeStyle() // and the toggle follows the style
-    return VStack(
+    const wide = isWide()
+    const body = VStack(
       { spacing: 10, align: 'leading' },
       HStack(
         { spacing: 8, align: 'center' },
@@ -202,10 +230,11 @@ const codePanel = (example: Example): View =>
         ...(isEdited(example) ? [resetButton(example)] : []),
       ).expand('h'),
       Rectangle().fill('transparent').expand().onLayout((rect) => editor.setRect(rect)),
-    )
-      .padding(16)
-      .expand('v')
-      .frame(430, null)
+    ).padding(16)
+    // Wide: a 430px column that fills the row's height. Narrow: full width
+    // with a fixed height, so the code sits above the preview in the stack.
+    return (wide ? body.expand('v') : body)
+      .frame(wide ? 430 : null, wide ? null : 260)
       .background(RoundedRect(10).fill('#101013'))
   })
 
@@ -240,11 +269,15 @@ const previewPanel = (example: Example): View =>
 const content = (): View =>
   component('content', () => {
     const example = examples[current()]
+    const wide = isWide()
+    const panels = wide
+      ? HStack({ spacing: 14 }, codePanel(example), previewPanel(example))
+      : VStack({ spacing: 14 }, codePanel(example), previewPanel(example))
     return VStack(
       { spacing: 6, align: 'leading' },
       Text(example.title).font({ size: 22, weight: 700 }).foreground('#fafafa'),
       Text(example.blurb).font({ size: 13 }).foreground('#a1a1aa').padding({ b: 8 }),
-      HStack({ spacing: 14 }, codePanel(example), previewPanel(example)).expand('v'),
+      panels.expand('v'),
     )
       .padding(22)
       .expand()
@@ -254,7 +287,23 @@ const app = (): View =>
   VStack(
     { spacing: 0 },
     header(),
-    HStack({ spacing: 0 }, sidebar(), divider(), content()).expand('v'),
+    isWide()
+      ? HStack({ spacing: 0 }, sidebar(), divider(), content()).expand('v')
+      : // Narrow: no sidebar — a full-height scrim and the example list slide
+        // over the content when the menu button is tapped.
+        ZStack(
+          content(),
+          ...(menuOpen()
+            ? [
+                Rectangle()
+                  .fill('#000000')
+                  .opacity(0.45)
+                  .onTap(() => menuOpen.set(false))
+                  .onDrag({ onMove: () => {} }, 'default'),
+                HStack({ spacing: 0, align: 'leading' }, sidebar(), Spacer()),
+              ]
+            : []),
+        ).expand('v'),
   )
     .background(Rectangle().fill('#0b0b0e'))
 
@@ -264,6 +313,7 @@ function selectExample(i: number): void {
   current.set(i)
   previewScroll.set(0)
   editor.setSource(sourceOf(examples[i]))
+  menuOpen.set(false)
 }
 
 function resetExample(example: Example): void {
@@ -300,11 +350,24 @@ const overlay = document.getElementById('overlay') as HTMLElement
 const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-backend]'))
 
 const editor = createEditor(overlay, onEdit)
+// The editor is a DOM textarea above the canvas. While the menu's scrim is
+// up it would otherwise float over it, bright and interactive — this keeps
+// it inert and dimmed, so taps reach the scrim instead.
+subscribe(() => editor.setEnabled(!menuOpen()))
 // The native-scroll prototype's hidden scrollers live in the same overlay as
 // the editor: exactly over the canvas, inert to the pointer themselves.
 setNativeScrollLayer(overlay)
 
 let mounted: Mounted | null = null
+
+// The mount loop already re-lays out on resize; `wide` is what tells the
+// components which side of the breakpoint they are on. A leftover open menu
+// is dismissed when the layout goes wide — it is a narrow-mode affordance
+// and would pop open on the way back down otherwise.
+window.addEventListener('resize', () => {
+  wide.set(window.innerWidth >= WIDE_MIN)
+  if (isWide()) menuOpen.set(false)
+})
 
 function use(mode: string): void {
   mounted?.unmount()

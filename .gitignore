@@ -6,3 +6,4 @@ dist-check
 
 # Agent worktrees
 .claude/
+reasonix.toml

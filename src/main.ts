@@ -86,7 +86,7 @@ const header = (): View =>
     HStack(
       { spacing: 10, align: 'center' },
       Circle().fill('#22c55e').frame(9, 9),
-      Text('canvasUI').font({ size: 15, weight: 700 }).foreground('#fafafa'),
+      Text('WeaveKit').font({ size: 15, weight: 700 }).foreground('#fafafa'),
       Text('examples').font({ size: 12 }).foreground('#71717a'),
       Spacer(),
       Text('declarative layout → draw ops → canvas')
@@ -306,8 +306,8 @@ for (const b of buttons) b.addEventListener('click', () => use(b.dataset.backend
 // Exposed so the cache can be inspected from the console or a headless check.
 // `history` matters more than `stats`: an idle or resize frame can land after
 // the one that did the work.
-Object.defineProperty(window, 'canvasUIStats', { get: () => mounted?.stats() })
-Object.defineProperty(window, 'canvasUIHistory', { get: () => mounted?.history() })
+Object.defineProperty(window, 'weaveKitStats', { get: () => mounted?.stats() })
+Object.defineProperty(window, 'weaveKitHistory', { get: () => mounted?.history() })
 
 // `?backend=dom` picks the debug renderer; `?example=<id>` deep-links one.
 const params = new URLSearchParams(location.search)

@@ -1,9 +1,9 @@
-# canvasUI
+# WeaveKit
 
 A declarative, SwiftUI-shaped UI toolkit that renders to `<canvas>`.
 
 Canvas gives you full control over pixels but takes away everything else:
-layout, hit testing, text wrapping, invalidation. canvasUI puts those back,
+layout, hit testing, text wrapping, invalidation. WeaveKit puts those back,
 using the layout model SwiftUI popularised — views describe themselves, parents
 propose space, children answer with a size.
 
@@ -122,7 +122,7 @@ re-renders as you go, like the Svelte tutorial. Broken code shows the error and
 leaves the rest of the page running. `reset` restores the original, and edits
 are kept per example while you browse.
 
-The gallery itself is built with canvasUI — the sidebar, the panels and the
+The gallery itself is built with WeaveKit — the sidebar, the panels and the
 preview are all views, so it doubles as the largest example.
 
 Deep-link an example with `?example=<id>`, e.g. `?example=flexibility`.
@@ -696,7 +696,7 @@ whoever consumed it, which breaks as soon as two trees are mounted — the first
 to render clears it out from under the second.
 
 `mounted.stats()` and `mounted.history()` expose per-frame cache activity;
-the demo publishes them as `window.canvasUIStats` / `window.canvasUIHistory`.
+the demo publishes them as `window.weaveKitStats` / `window.weaveKitHistory`.
 
 ## Roadmap
 

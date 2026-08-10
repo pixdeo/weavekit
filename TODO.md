@@ -70,15 +70,19 @@ map and a release process.
   content never overshoots on its own. A spring with damping below 1 already
   overshoots and the viewport already renders out-of-range offsets, so this is
   a matter of choosing the target, not new machinery. `views/scroll.ts`.
-- **The end of a wheel gesture is inferred, not observed.** There is no event
-  for a trackpad being released, so momentum is told from a hand by the fact
-  that it decays. It is the one heuristic in the scrolling path, and it would
-  become unnecessary if the platform ever exposed a phase on `WheelEvent`.
-  `views/scroll.ts`.
+- **The wheel bounce is not Apple's yet.** The end of a wheel gesture is
+  inferred rather than observed — there is no event for a trackpad being
+  released — so momentum is told from a hand by the fact that it decays. It is
+  the one heuristic in the scrolling path, and it is close but audibly not the
+  real thing: fingers resting on the trackpad still let go of the band, because
+  resting fingers send no events at all. Causes and the routes out are written
+  up in [NOTES-scroll-bounce.md](NOTES-scroll-bounce.md); do not reach for the
+  constants again. `views/scroll.ts`.
 - **The bounce shares the axis's spring with the fling.** One spec covers
   both, so a deliberately lazy fling drags the bounce out with it. Apple keeps
   them separate. Would want a second spec on `ScrollView` rather than on the
-  axis, since it is the viewport's behaviour and not the value's.
+  axis, since it is the viewport's behaviour and not the value's. The smallest
+  independent item in [NOTES-scroll-bounce.md](NOTES-scroll-bounce.md).
 - **No smoothing for a discrete mouse wheel.** Every input lands 1:1, which is
   right for a trackpad and leaves a notched wheel a little steppy. Smoothing
   only that needs the two devices told apart — `deltaMode` and delta size are

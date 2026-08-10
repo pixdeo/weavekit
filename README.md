@@ -33,6 +33,7 @@ This is an open source project. Issues and pull requests are welcome.
 - Every behavioural change needs a check in `src/dev/layout-check.ts`. The
   checks run headless in a couple of seconds; there is no browser needed.
 - `npm run check && npm run check:layout` must pass before a pull request.
+  CI runs both, plus the build, on Node 20 for every push and pull request.
 
 [TODO.md](TODO.md) lists what is missing and where to start on each item.
 
@@ -437,6 +438,31 @@ as well as a plain signal — only an `animated()` can be handed a velocity. A
 plain signal still scrolls; it simply stops when the finger does. Pressing
 again during a coast settles it where it is, so the content never slides out
 from under a finger that has caught it.
+
+One rule falls out of the distinction and is worth stating: **a gesture writes
+the offset without animating it.** `set` on an `animated()` interpolates, which
+is right for a wheel notch and wrong for a finger — content that springs toward
+the pointer lags behind it, and direct manipulation means it does not. Drags
+and thumbs write through `settle`; only the wheel and the release animate.
+
+### Rubber-banding
+
+Dragging past an end does not stop dead. The offset is allowed outside the
+content, moving by a fraction of the finger that shrinks the further it is
+pulled, and springs back on release. This is why the viewport reads its offset
+unclamped: a bounce that is clipped away is not a bounce.
+
+The resistance curve is Apple's, and so is its useful property — displacement
+asymptotes at `viewport / 0.55`, so however hard the content is pulled it can
+never be dragged clean off the screen.
+
+The inverse of that curve matters as much as the curve. Grabbing content
+mid-bounce has to resume from the raw distance the visible offset stands for;
+resisting an already-resisted value makes the content jump under the finger at
+the exact moment someone is trying to catch it.
+
+Banding needs somewhere to spring back to, so it also applies only to an
+`animated()` axis. A plain signal stops at the end, as it always did.
 
 ## Clipping and scrolling
 

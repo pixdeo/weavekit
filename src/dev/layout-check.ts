@@ -1440,5 +1440,108 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   }
 }
 
+/* 19. Rubber-banding: past an end the content follows a shrinking fraction of
+       the finger, and a release springs it back. */
+{
+  const { ScrollView } = await import('../views/scroll')
+  const { advanceAnimations, animated, spring } = await import('../core/animation')
+  const { signal } = await import('../core/signal')
+
+  const tick = (ms = 16): boolean => {
+    const running = advanceAnimations(advanceClock(ms))
+    flushFrame()
+    return running
+  }
+
+  // Content 200 tall in a 100 viewport: the offset runs 0..100.
+  const rows = VStack({ spacing: 0 }, ...Array.from({ length: 10 }, () => Rectangle().frame(100, 20)))
+  const place = (axis: Parameters<typeof ScrollView>[0]) => {
+    const ctx = new Ctx()
+    const v = ScrollView(axis, rows)
+    v.measure({ w: 100, h: 100 }, ctx)
+    v.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+    return ctx
+  }
+  const panOf = (ctx: InstanceType<typeof Ctx>) =>
+    ctx.hits.find((h) => h.drag?.pointerTypes)!.drag!
+  const at = (ty: number, vy = 0) => {
+    return {
+      x: 0, y: ty, dx: 0, dy: ty, tx: 0, ty,
+      startX: 0, startY: 0, vx: 0, vy, pointerType: 'touch' as const,
+    }
+  }
+
+  /* A plain signal has nowhere to spring back to, so it still stops dead. */
+  {
+    const y = signal(0)
+    const pan = panOf(place({ y }))
+    pan.onStart!(at(0))
+    pan.onMove!(at(60))
+    check('a plain signal stops at the end', y(), 0)
+  }
+
+  /* An animated one bands. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    const pan = panOf(place({ y }))
+
+    pan.onStart!(at(0))
+    // Dragging down past the top: the offset would be -60 unbanded.
+    pan.onMove!(at(60))
+    const banded = y()
+    check('past the end the offset goes out of range', banded < 0, true)
+    check('but by less than the finger moved', banded > -60, true)
+
+    // Twice the pull is well under twice the give.
+    pan.onMove!(at(120))
+    check('the band stiffens as it stretches', y() > banded * 2, true)
+
+    // Whatever it is pulled by, it can never clear the viewport.
+    pan.onMove!(at(100000))
+    check('displacement is bounded by the viewport', y() > -100 / 0.55, true)
+
+    pan.onEnd!(at(100000))
+    check('releasing springs it back', y.animating(), true)
+    check('and it heads for the end it left', y.target(), 0)
+
+    let frames = 0
+    while (tick() && frames < 400) frames++
+    check('the bounce comes to rest', [y.animating(), y()], [false, 0])
+  }
+
+  /* Grabbing mid-bounce must not jump: the drag resumes from the raw distance
+     the visible offset stands for, not from the resisted one. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    const pan = panOf(place({ y }))
+    pan.onStart!(at(0))
+    pan.onMove!(at(80))
+    const stretched = y()
+
+    // Press again without moving. `mount` holds one Hit for a whole gesture,
+    // so onStart and onMove run on the same closure here too.
+    const regrab = panOf(place({ y }))
+    regrab.onStart!(at(0))
+    check('a press mid-band does not move the content', y(), stretched)
+    regrab.onMove!(at(0))
+    check('and neither does a zero-distance move', Math.round(y()), Math.round(stretched))
+  }
+
+  /* The thumb stays on its track while the band is stretched. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    const track = place({ y }).ops.filter((o) => o.t === 'rect')
+    const restingThumb = track[track.length - 1].rect.y
+
+    panOf(place({ y })).onStart!(at(0))
+    panOf(place({ y })).onMove!(at(80))
+    const bandedOps = place({ y }).ops.filter((o) => o.t === 'rect')
+    const bandedThumb = bandedOps[bandedOps.length - 1].rect
+    check('the content moved out of range', y() < 0, true)
+    check('the thumb stayed at the top of its track', bandedThumb.y, restingThumb)
+    check('and inside the viewport', bandedThumb.y >= 0, true)
+  }
+}
+
 console.log(failures === 0 ? '\nall layout checks passed' : `\n${failures} check(s) failed`)
 if (failures > 0) process.exitCode = 1

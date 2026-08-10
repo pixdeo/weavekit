@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A new push to a branch makes the run already in flight pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The lowest version the toolkit is expected to build on. Nothing here
+          # needs anything newer, and pinning the floor is what catches a
+          # dependency quietly raising it.
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Types first: a type error makes the other two fail in ways that take
+      # longer to read than the error itself.
+      - name: Types
+        run: npm run check
+
+      # The real suite. It bundles the checks with vite and runs them under
+      # Node against stubbed canvas metrics — seconds, and no browser.
+      - name: Layout checks
+        run: npm run check:layout
+
+      # Last, because a green build with broken behaviour is the less useful
+      # signal of the two.
+      - name: Build
+        run: npx vite build

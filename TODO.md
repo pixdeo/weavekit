@@ -64,9 +64,11 @@ map and a release process.
 - **Only `ScrollView` flings.** `Drag` carries a release velocity and
   `project()` turns it into a landing point, but nothing else uses either. A
   draggable object thrown across a canvas still stops dead.
-- **No rubber-banding.** A fling into the end of the content clamps to it.
-  There is no overscroll and no bounce back, which is the other half of what
-  makes a touch surface feel physical. `views/scroll.ts`.
+- **A fling stops at the end rather than bouncing off it.** Dragging past an
+  end bands and springs back, but a *thrown* offset clamps its target, so the
+  content never overshoots on its own. A spring with damping below 1 already
+  overshoots and the viewport already renders out-of-range offsets, so this is
+  a matter of choosing the target, not new machinery. `views/scroll.ts`.
 - **No keyboard, no focus.** No focus ring, no tab order, no arrow-key or
   page-up/down scrolling.
 - **No accessibility.** A canvas is opaque to screen readers. The usual answer
@@ -105,8 +107,9 @@ map and a release process.
 
 ## Project chores
 
-- **CI.** `npm run check && npm run check:layout` runs in seconds and nothing
-  runs it automatically. A GitHub Actions workflow on push and pull request.
+- **No CI badge, and no remote.** `.github/workflows/ci.yml` runs on push and
+  pull request, but the project has never been pushed anywhere, so nothing has
+  ever run it on a server.
 - **A real test runner.** `src/dev/layout-check.ts` is a bespoke script with a
   hand-rolled `check()`. It works and it is fast, but it has no filtering, no
   watch mode and no per-file isolation.

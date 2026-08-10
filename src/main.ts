@@ -11,6 +11,8 @@ import {
   component,
   createCanvasBackend,
   createDomBackend,
+  dslToJs,
+  jsToBlocks,
   mount,
   setNativeScrollLayer,
   signal,
@@ -18,7 +20,7 @@ import {
 import type { View } from './core/view'
 import type { Mounted } from './core/mount'
 import { examples, type Example } from './examples'
-import { compileView, type Compiled } from './gallery/compile'
+import { compileSource, type Compiled } from './gallery/compile'
 import { createEditor } from './gallery/editor'
 
 /* ------------------------------------------------------------------ state */
@@ -33,22 +35,42 @@ const sidebarWidth = signal(210)
 const SIDEBAR_MIN = 150
 const SIDEBAR_MAX = 360
 
-/** Edited source per example id. Absent means "still the original". */
-const edits = new Map<string, string>()
+/** Edited source per example id, in the style it was edited in. Absent means
+    "still the original". */
+type CodeStyle = 'js' | 'blocks'
+const codeStyle = signal<CodeStyle>('js')
+const edits = new Map<string, { style: CodeStyle; source: string }>()
 const results = new Map<string, Compiled>()
 
-const sourceOf = (example: Example): string => edits.get(example.id) ?? example.code
-const isEdited = (example: Example): boolean => sourceOf(example) !== example.code
+/** The example's own code, in the style the editor is showing. */
+const pristineOf = (example: Example): string =>
+  codeStyle() === 'blocks' ? jsToBlocks(example.code) : example.code
+
+const convert = (source: string, to: CodeStyle): string | null => {
+  try {
+    return to === 'blocks' ? jsToBlocks(source) : dslToJs(source).code
+  } catch {
+    return null // broken block syntax can't be shown as JavaScript
+  }
+}
+
+const sourceOf = (example: Example): string => {
+  const edit = edits.get(example.id)
+  if (!edit) return pristineOf(example)
+  if (edit.style === codeStyle()) return edit.source
+  return convert(edit.source, codeStyle()) ?? edit.source
+}
+const isEdited = (example: Example): boolean => edits.has(example.id)
 
 function recompile(example: Example): void {
-  results.set(example.id, compileView(sourceOf(example)))
+  results.set(example.id, compileSource(sourceOf(example)))
   revision.set((n) => n + 1)
 }
 
 function resultFor(example: Example): Compiled {
   let result = results.get(example.id)
   if (!result) {
-    result = compileView(sourceOf(example))
+    result = compileSource(sourceOf(example))
     results.set(example.id, result)
   }
   return result
@@ -136,18 +158,35 @@ const resetButton = (example: Example): View =>
     .background(RoundedRect(5).fill('#27272a'))
     .onTap(() => resetExample(example))
 
+/* The editor speaks plain JavaScript and block syntax; this flips the view
+   of the current source between the two. */
+const styleOption = (label: string, style: CodeStyle): View =>
+  Text(label)
+    .font({ size: 10, weight: 700 })
+    .foreground(codeStyle() === style ? '#fafafa' : '#71717a')
+    .padding({ t: 3, b: 3, l: 7, r: 7 })
+    .background(RoundedRect(5).fill(codeStyle() === style ? '#3f3f46' : 'transparent'))
+    .onTap(() => setStyle(style))
+
+const styleToggle = (): View =>
+  HStack({ spacing: 2 }, styleOption('js', 'js'), styleOption('{ }', 'blocks'))
+    .padding(2)
+    .background(RoundedRect(7).fill('#27272a'))
+
 // The panel draws its frame and label; the textarea overlaying the reported
 // rect draws the text. Editing needs a caret, selection and IME — none of
 // which the toolkit has.
 const codePanel = (example: Example): View =>
   component(`code:${example.id}`, () => {
     revision() // the edited/pristine label and the reset button follow edits
+    codeStyle() // and the toggle follows the style
     return VStack(
       { spacing: 10, align: 'leading' },
       HStack(
         { spacing: 8, align: 'center' },
         panelLabel(isEdited(example) ? 'CODE — EDITED' : 'CODE'),
         Spacer(),
+        styleToggle(),
         ...(isEdited(example) ? [resetButton(example)] : []),
       ).expand('h'),
       Rectangle().fill('transparent').expand().onLayout((rect) => editor.setRect(rect)),
@@ -217,14 +256,28 @@ function selectExample(i: number): void {
 
 function resetExample(example: Example): void {
   edits.delete(example.id)
-  editor.setSource(example.code)
+  editor.setSource(pristineOf(example))
   recompile(example)
+}
+
+/* Re-views the current source in the other style. Edits carry over — the
+   toggle converts whatever is in the editor, not the pristine example. */
+function setStyle(next: CodeStyle): void {
+  if (codeStyle() === next) return
+  const example = examples[current()]
+  const converted = convert(editor.value(), next)
+  if (converted === null) return
+  codeStyle.set(next)
+  if (converted === pristineOf(example)) edits.delete(example.id)
+  else edits.set(example.id, { style: next, source: converted })
+  recompile(example)
+  editor.setSource(converted)
 }
 
 function onEdit(source: string): void {
   const example = examples[current()]
-  if (source === example.code) edits.delete(example.id)
-  else edits.set(example.id, source)
+  if (source === pristineOf(example)) edits.delete(example.id)
+  else edits.set(example.id, { style: codeStyle(), source })
   recompile(example)
 }
 

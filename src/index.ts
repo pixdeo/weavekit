@@ -19,6 +19,8 @@ export {
 export type { Animated, AnimationSpec, Easing, SpringOpts, TweenOpts } from './core/animation'
 export { component, ComponentCache } from './core/component'
 export type { CacheStats } from './core/component'
+export { dslToJs, jsToBlocks, DslSyntaxError } from './core/dsl'
+export type { DslOutput } from './core/dsl'
 export type {
   Align,
   Drag,

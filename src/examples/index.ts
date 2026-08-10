@@ -1,5 +1,6 @@
 import type { Example } from './types'
 import { hello } from './hello'
+import { dsl } from './dsl'
 import { stacks } from './stacks'
 import { modifiers } from './modifiers'
 import { flexibility } from './flexibility'
@@ -14,6 +15,7 @@ import { embedding } from './embedding'
 /** Gallery order. The first entry is what a newcomer lands on. */
 export const examples: Example[] = [
   hello,
+  dsl,
   stacks,
   modifiers,
   flexibility,

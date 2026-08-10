@@ -138,7 +138,8 @@ reader can edit either into the other.
   page's globals. The gallery runs the reader's own code in the reader's own
   browser, the same trade every in-page playground makes.
 - `src/gallery/compile.ts` evaluates it with `new Function`, accepting either a
-  single expression or statements ending in `return <view>`. The result is laid
+  single expression or statements ending in `return <view>`, in plain
+  JavaScript or in [block syntax](#block-syntax). The result is laid
   out once in a throwaway context before being adopted, so a snippet that
   throws during measure or place cannot take down the frame rendering it. Every
   failure comes back as a message.
@@ -152,6 +153,53 @@ DOM element up with a canvas-laid-out region.
 
 `new Function` means the gallery needs a CSP that permits it. That applies to
 the gallery only — the toolkit itself never evaluates strings.
+
+### Block syntax
+
+The editor also accepts a SwiftUI-flavoured block syntax for the same trees,
+and the `js` / `{ }` toggle in the code panel's header flips the view of the
+current source between the two styles — edits carry over in either direction.
+Options are `key: value` lines at the top of a block, children go one per
+line, and modifiers chain off the closing brace:
+
+```
+VStack {
+  spacing: 6
+  align: 'leading'
+  Text('Hello, world')
+    .font({ size: 28, weight: 700 })
+  HStack {
+    Text('nested')
+    Text('blocks')
+  }
+}
+  .padding(22)
+```
+
+`dslToJs` (`src/core/dsl.ts`) rewrites this to the plain JavaScript the
+examples are written in — `VStack({ spacing: 6, align: 'leading' }, ...)` —
+and the result goes through the same compiler, so the two forms mix freely
+and nothing about the runtime changes. The reverse rewrite, `jsToBlocks`, is
+what the style toggle uses; `npm run check:layout` verifies that every
+example lays out identically in both styles. A head can keep ordinary
+arguments
+(`ScrollView({ y: offset }) { ... }` appends the block's children to them).
+Statements are allowed at the top level, and the final expression is returned
+implicitly:
+
+```
+const clicks = signal(0)
+
+VStack {
+  Text(() => `clicks: ${clicks()}`)
+  Button('tap', () => clicks.set(clicks() + 1))
+}
+```
+
+The rewriter is a single pass, not a real parser, which buys two limitations:
+regex literals are not recognised (write `new RegExp(...)`), and a block body
+is line-oriented — a child expression fits on one line, or continues inside
+unclosed `(...)` or on lines starting with `.`.
 
 ### Adding an example
 

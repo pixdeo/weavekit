@@ -1,4 +1,5 @@
 import { Ctx } from '../core/ctx'
+import { DslSyntaxError, dslToJs } from '../core/dsl'
 import { View } from '../core/view'
 import { SANDBOX_NAMES, SANDBOX_VALUES } from './sandbox'
 
@@ -54,4 +55,25 @@ export function compileView(source: string): Compiled {
   }
 
   return { ok: true, view: value }
+}
+
+/**
+ * `compileView`, but the source may also be written in block syntax (see
+ * `dslToJs`). Plain JavaScript is tried first and its errors are kept unless
+ * the source actually contains blocks, so existing snippets behave exactly as
+ * before.
+ */
+export function compileSource(source: string): Compiled {
+  const direct = compileView(source)
+  if (direct.ok) return direct
+
+  let rewritten: ReturnType<typeof dslToJs>
+  try {
+    rewritten = dslToJs(source)
+  } catch (e) {
+    if (e instanceof DslSyntaxError) return { ok: false, error: e.message }
+    throw e
+  }
+  if (rewritten.blocksFound === 0) return direct
+  return compileView(rewritten.code)
 }

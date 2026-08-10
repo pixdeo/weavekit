@@ -468,7 +468,7 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
        fits the 430px column. Catches a broken example before the browser does. */
 {
   const { examples } = await import('../examples')
-  const { compileView } = await import('../gallery/compile')
+  const { compileSource, compileView } = await import('../gallery/compile')
 
   check('the gallery has examples', examples.length > 0, true)
 
@@ -478,7 +478,7 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   const MAX_CODE_COLUMNS = 55
 
   for (const example of examples) {
-    const result = compileView(example.code)
+    const result = compileSource(example.code)
     check(
       `example "${example.id}" compiles`,
       result.ok ? true : `compile failed: ${result.error}`,
@@ -1828,6 +1828,116 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     check('a claim registers on a fresh place', pass().claims, ['token'])
     check('and replays out of the cache', pass().claims, ['token'])
   }
+}
+
+/* 22. Block syntax: `Name { ... }` rewrites to the calls the JavaScript API
+       accepts, and the gallery compiler takes either form. */
+{
+  const { dslToJs } = await import('../core/dsl')
+  const { compileSource, compileView } = await import('../gallery/compile')
+
+  const sizeOf = (source: string, viaDsl: boolean) => {
+    const result = viaDsl ? compileSource(source) : compileView(source)
+    if (!result.ok) throw new Error(`check setup does not compile: ${result.error}`)
+    const ctx = new Ctx()
+    const size = result.view.measure({ w: 480, h: 320 }, ctx)
+    result.view.place({ x: 0, y: 0, w: 480, h: 320 }, ctx)
+    return { w: Math.round(size.w), h: Math.round(size.h), ops: ctx.ops.length }
+  }
+
+  /* Options, nested blocks and chained modifiers. */
+  const asJs = sizeOf(
+    `VStack({ spacing: 6, align: 'leading' },
+  Text('hi'),
+  HStack({ spacing: 2 }, Text('a'), Text('b')),
+).padding(10)`,
+    false,
+  )
+  const asBlocks = sizeOf(
+    `VStack {
+  spacing: 6
+  align: 'leading'
+  Text('hi')
+  HStack {
+    spacing: 2
+    Text('a')
+    Text('b')
+  }
+}
+  .padding(10)`,
+    true,
+  )
+  check('block syntax lays out like the JavaScript it rewrites to', asBlocks, asJs)
+
+  /* Statements at the top level; the last expression returns implicitly. */
+  const withState = compileSource(`const n = signal(2)
+
+VStack {
+  Text('n=' + n())
+}`)
+  check('statements plus an implicit return compile', withState.ok, true)
+
+  /* A head with arguments takes its children from the block. */
+  const scrolled = compileSource(`ScrollView({ y: signal(0) }) {
+  Text('content')
+}`)
+  check('a block can add children to call arguments', scrolled.ok, true)
+
+  /* Plain JavaScript without blocks is passed through untouched. */
+  const plain = dslToJs(`Text('hi')`)
+  check('no blocks means no rewrite', [plain.blocksFound, plain.code], [0, `Text('hi')`])
+
+  /* Malformed input comes back as a positioned message, never an exception. */
+  const unclosed = compileSource('VStack {')
+  check('an unclosed block is an error, not a crash', unclosed.ok, false)
+  check(
+    'and the error carries its line',
+    !unclosed.ok && unclosed.error.includes('unclosed block') && unclosed.error.includes('line 1'),
+    true,
+  )
+
+  const lateOption = compileSource(`VStack {
+  Text('hi')
+  spacing: 6
+}`)
+  check('an option after the children is rejected', lateOption.ok, false)
+
+  const innerStatement = compileSource(`VStack {
+  const x = 1
+}`)
+  check('a statement inside a block is rejected', innerStatement.ok, false)
+
+  /* A JavaScript error in block-free source keeps its original message. */
+  const brokenJs = compileSource('VStack(')
+  check('plain JavaScript errors are not rewritten', brokenJs.ok, false)
+}
+
+/* 23. Every example can be viewed as blocks: `jsToBlocks` rewrites it, and
+       the rewrite compiles to exactly the view the JavaScript describes. */
+{
+  const { jsToBlocks, dslToJs } = await import('../core/dsl')
+  const { compileSource, compileView } = await import('../gallery/compile')
+  const { examples } = await import('../examples')
+
+  const fingerprint = (result: ReturnType<typeof compileView>): string => {
+    if (!result.ok) throw new Error(`check setup does not compile: ${result.error}`)
+    const ctx = new Ctx()
+    const size = result.view.measure({ w: 600, h: 400 }, ctx)
+    result.view.place({ x: 0, y: 0, w: 600, h: 400 }, ctx)
+    return JSON.stringify({ size, ops: ctx.ops }, (_k, v) =>
+      typeof v === 'function' ? '[fn]' : v,
+    )
+  }
+
+  for (const example of examples) {
+    const asWritten = fingerprint(compileSource(example.code))
+    const asBlocks = fingerprint(compileSource(jsToBlocks(example.code)))
+    check(`example "${example.id}" lays out the same as blocks`, asBlocks, asWritten)
+  }
+
+  /* And a trip there and back lands on JavaScript that still compiles. */
+  const roundTrip = dslToJs(jsToBlocks(examples[0].code))
+  check('blocks survive a round trip back to JavaScript', compileView(roundTrip.code).ok, true)
 }
 
 console.log(failures === 0 ? '\nall layout checks passed' : `\n${failures} check(s) failed`)

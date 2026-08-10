@@ -11,6 +11,7 @@ import { scrolling } from './scrolling'
 import { nativeScroll } from './native-scroll'
 import { animation } from './animation'
 import { embedding } from './embedding'
+import { desktop } from './desktop'
 
 /** Gallery order. The first entry is what a newcomer lands on. */
 export const examples: Example[] = [
@@ -26,6 +27,7 @@ export const examples: Example[] = [
   nativeScroll,
   animation,
   embedding,
+  desktop,
 ]
 
 export type { Example }

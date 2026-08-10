@@ -90,6 +90,47 @@ export const pointerTypeOf = (v: string | undefined | null): PointerType =>
   v === 'touch' || v === 'pen' ? v : 'mouse'
 
 /**
+ * One key press, in plain data — the keyboard analogue of `Drag`. The toolkit
+ * routes the browser's `keydown` to the focused view instead of handing it
+ * the DOM event, so views stay backend-agnostic and the headless checks can
+ * dispatch keys without a browser.
+ */
+export interface Key {
+  /** The key's value: `'a'`, `'Enter'`, `'Backspace'`, `'Shift'`… */
+  key: string
+  /** Physical key, layout-independent: `'KeyA'`, `'Digit1'`, `'Space'`… */
+  code: string
+  ctrlKey: boolean
+  metaKey: boolean
+  altKey: boolean
+  shiftKey: boolean
+  /** Held down — typematic repeats. */
+  repeat: boolean
+  /** Part of an IME composition; a handler should usually ignore it. */
+  isComposing: boolean
+}
+
+export const toKey = (e: {
+  key: string
+  code: string
+  ctrlKey: boolean
+  metaKey: boolean
+  altKey: boolean
+  shiftKey: boolean
+  repeat: boolean
+  isComposing: boolean
+}): Key => ({
+  key: e.key,
+  code: e.code,
+  ctrlKey: e.ctrlKey,
+  metaKey: e.metaKey,
+  altKey: e.altKey,
+  shiftKey: e.shiftKey,
+  repeat: e.repeat,
+  isComposing: e.isComposing,
+})
+
+/**
  * One sample of a drag, in root coordinates.
  *
  * `dx`/`dy` are the step since the previous sample; `tx`/`ty` are the total
@@ -143,6 +184,11 @@ export interface Hit {
    * pointer until it is released, so nothing else can steal it mid-drag.
    */
   drag?: DragHandlers
+  /**
+   * Pressing this view makes it the key target: `keydown` events route here
+   * until the next press. See `onKey` on `View`.
+   */
+  key?: (k: Key) => void
   /** CSS cursor shown while the pointer is inside this rect. */
   cursor?: string
   clip?: Rect

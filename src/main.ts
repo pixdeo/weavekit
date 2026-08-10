@@ -153,6 +153,32 @@ const navRow = (example: Example, i: number): View =>
       .onTap(() => selectExample(i)),
   )
 
+/** A labelled rule between example sections — EXAMPLES, then APPS. */
+const sectionLabel = (name: string): View =>
+  VStack(
+    { spacing: 6, align: 'leading' },
+    Rectangle().fill('#232327').frame(null, 1).padding({ l: 9, r: 9 }),
+    Text(name)
+      .font({ size: 10, weight: 700 })
+      .foreground('#52525b')
+      .padding({ l: 9 }),
+  ).padding({ t: 10, b: 2 })
+
+/** The nav list, with a divider before each new section. */
+const navItems = (): View[] => {
+  const items: View[] = []
+  let last = ''
+  for (let i = 0; i < examples.length; i++) {
+    const section = examples[i].section ?? ''
+    if (section !== last && section !== '') {
+      if (last !== '') items.push(sectionLabel(section))
+      last = section
+    }
+    items.push(navRow(examples[i], i))
+  }
+  return items
+}
+
 const sidebar = (): View =>
   component('sidebar', () =>
     VStack(
@@ -161,7 +187,7 @@ const sidebar = (): View =>
         .font({ size: 10, weight: 700 })
         .foreground('#52525b')
         .padding({ l: 9, b: 6 }),
-      ScrollView({ y: navScroll }, VStack({ spacing: 2, align: 'leading' }, ...examples.map(navRow))),
+      ScrollView({ y: navScroll }, VStack({ spacing: 2, align: 'leading' }, ...navItems())),
     )
       .padding(10)
       .frame(sidebarWidth(), null)

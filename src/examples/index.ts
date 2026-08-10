@@ -14,6 +14,8 @@ import { nativeScroll } from './native-scroll'
 import { animation } from './animation'
 import { embedding } from './embedding'
 import { desktop } from './desktop'
+import { figma } from './figma'
+import { spreadsheet } from './spreadsheet'
 
 /** Gallery order. The first entry is what a newcomer lands on. */
 export const examples: Example[] = [
@@ -32,6 +34,8 @@ export const examples: Example[] = [
   animation,
   embedding,
   desktop,
+  figma,
+  spreadsheet,
 ]
 
 export type { Example }

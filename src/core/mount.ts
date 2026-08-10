@@ -1,7 +1,7 @@
 import { Ctx } from './ctx'
 import type { View } from './view'
 import type { Drag, DragHandlers, Hit, PointerType, ScrollRegion } from './types'
-import { hitTestable, pointerTypeOf } from './types'
+import { hitTestable, pointerTypeOf, toKey } from './types'
 import { subscribe } from './signal'
 import { advanceAnimations } from './animation'
 import { ComponentCache, type CacheStats } from './component'
@@ -29,6 +29,14 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
   let alive = true
   /** Where the mouse last was. Fingers do not hover, so they never set it. */
   let pointer: { x: number; y: number } | null = null
+  /**
+   * The view keys route to. A press on a key-capable view makes it the target;
+   * a press anywhere else clears it, so focus follows the pointer like a
+   * browser's input focus. Held across frames on purpose — the target's
+   * handler reads the state it closed over, so a rebuild under it (the very
+   * rebuild its keys cause) must not drop it mid-keystroke.
+   */
+  let keyTarget: Hit | null = null
 
   interface Gesture {
     hit: Hit
@@ -192,7 +200,28 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
       draggable.drag?.onStart?.(sample(g, x, y))
     }
     hitTest(x, y, (h) => h.handler != null)?.handler?.()
+    // Keyboard focus follows the press: the innermost key-capable view under
+    // the pointer becomes the target, and a press on nothing clears it.
+    keyTarget = hitTest(x, y, (h) => h.key != null)
   })
+
+  /**
+   * A DOM element that owns its typing — the gallery's code editor is a
+   * textarea over the canvas — must not have its keystrokes stolen. Check the
+   * tag structurally so the headless checks, which have no `HTMLElement`,
+   * can dispatch keys too.
+   */
+  const isEditableTarget = (t: unknown): boolean => {
+    const el = t as { tagName?: string; isContentEditable?: boolean } | null
+    const tag = el?.tagName
+    return tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable === true
+  }
+
+  const onKeyDown = (e: KeyboardEvent): void => {
+    if (e.isComposing || isEditableTarget(e.target)) return
+    keyTarget?.key?.(toKey(e))
+  }
+  window.addEventListener('keydown', onKeyDown)
 
   function updateCursor(x: number, y: number): void {
     const hit = hitTest(x, y, (h) => h.cursor != null)
@@ -252,6 +281,7 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
       alive = false
       unsubscribe()
       window.removeEventListener('resize', onResize)
+      window.removeEventListener('keydown', onKeyDown)
       // A capture outlives the element it was taken on, so anything still held
       // has to go back before the backend does.
       for (const id of gestures.keys()) backend.releasePointer(id)

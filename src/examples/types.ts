@@ -3,6 +3,11 @@ export interface Example {
   title: string
   blurb: string
   /**
+   * Groups examples under a labelled divider in the sidebar. Absent entries
+   * fall in the first section.
+   */
+  section?: string
+  /**
    * The example, as source. This is the only definition — the rendered view is
    * produced by compiling this string, so the code shown and the result can
    * never drift apart, and the reader can edit it.

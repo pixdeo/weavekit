@@ -1,5 +1,5 @@
 import type { Ctx } from './ctx'
-import type { Drag, DragHandlers, Font, Insets, Proposal, Rect, Size } from './types'
+import type { Drag, DragHandlers, Font, Insets, Key, Proposal, Rect, Size } from './types'
 import { concrete, inset, insets, shrink } from './types'
 
 /**
@@ -87,6 +87,21 @@ export abstract class View {
    */
   onDrag(handlers: DragHandlers | ((d: Drag) => void), cursor = 'grab'): View {
     return new DragMod(this, typeof handlers === 'function' ? { onMove: handlers } : handlers, cursor)
+  }
+
+  /**
+   * Receives `keydown` events once this view is focused — pressing it focuses
+   * it, like clicking an input in a browser. The handler gets a plain `Key`
+   * (no DOM event), reads the state it closed over, and stays the target
+   * until the next press lands on a key-capable view or on nothing at all.
+   *
+   * This is deliberately not canvas-native text editing: there is no caret,
+   * selection or IME. A view that wants to be edited keeps its text in a
+   * signal and maps keys to it, which is all a spreadsheet cell or a design
+   * canvas needs. Text fields that need real editing stay a DOM overlay.
+   */
+  onKey(handler: (k: Key) => void): View {
+    return new KeyMod(this, handler)
   }
 
   /** Cursor feedback without a tap handler — resize handles, drag surfaces. */
@@ -319,6 +334,26 @@ class DragMod extends View {
     // Before the child, for the same reason as a tap: nested gestures land
     // later in the list and win the back-to-front scan.
     ctx.addHit({ rect, drag: this.handlers, cursor: this.cursorName })
+    this.child.place(rect, ctx)
+  }
+}
+
+class KeyMod extends View {
+  constructor(
+    private child: View,
+    private handler: (k: Key) => void,
+  ) {
+    super()
+  }
+
+  measure(p: Proposal, ctx: Ctx): Size {
+    return this.child.measure(p, ctx)
+  }
+
+  place(rect: Rect, ctx: Ctx): void {
+    // Before the child so a key-capable leaf inside (a cell with its own
+    // `onKey`) lands later in the list and wins the focus scan.
+    ctx.addHit({ rect, key: this.handler })
     this.child.place(rect, ctx)
   }
 }

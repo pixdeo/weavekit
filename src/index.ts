@@ -29,6 +29,7 @@ export type {
   Font,
   Hit,
   Insets,
+  Key,
   PointerType,
   Proposal,
   Rect,

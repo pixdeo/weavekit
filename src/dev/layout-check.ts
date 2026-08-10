@@ -27,7 +27,25 @@ const win = globalThis as unknown as {
   window?: unknown
   requestAnimationFrame?: unknown
 }
-win.window = { addEventListener: () => {}, removeEventListener: () => {}, devicePixelRatio: 1 }
+/** Listeners the mount loop registered on the stub window, so the checks can
+    dispatch `keydown`/`resize` events at it. */
+const winListeners = new Map<string, ((e: unknown) => void)[]>()
+win.window = {
+  addEventListener: (type: string, cb: (...args: never[]) => void) => {
+    const list = winListeners.get(type) ?? []
+    list.push(cb as (e: unknown) => void)
+    winListeners.set(type, list)
+  },
+  removeEventListener: (type: string, cb: (...args: never[]) => void) => {
+    const list = winListeners.get(type) ?? []
+    winListeners.set(type, list.filter((f) => f !== cb))
+  },
+  devicePixelRatio: 1,
+}
+/** Dispatches a keydown to whatever the mount loop registered. */
+const keydown = (e: unknown): void => {
+  for (const cb of winListeners.get('keydown') ?? []) cb(e)
+}
 /**
  * A fake frame clock. Frames are handed its current value, and the animation
  * checks step it, so the mount loop and the animation driver agree on the
@@ -613,6 +631,134 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   check('the cursor returns to the view under the pointer', cursor, 'default')
 
   mounted.unmount()
+}
+
+/* 13b. Keyboard focus: pressing a .onKey() view routes keydown to it, like an
+       input's focus — and a press elsewhere blurs it. Keys aimed at a DOM
+       textarea (the gallery's code editor) must never be stolen. */
+{
+  const { mount } = await import('../core/mount')
+
+  const log: string[] = []
+  let down: (x: number, y: number, id: number) => void = () => {}
+
+  const backend = {
+    el: {},
+    resize: () => {},
+    draw: () => {},
+    onPointerDown: (cb: typeof down) => {
+      down = cb
+    },
+    onPointerMove: () => {},
+    onPointerUp: () => {},
+    capturePointer: () => {},
+    releasePointer: () => {},
+    onWheel: () => {},
+    setCursor: () => {},
+    destroy: () => {},
+  }
+  const host = { clientWidth: 300, clientHeight: 80, replaceChildren: () => {} }
+
+  const press = (k: string): void =>
+    keydown({
+      key: k,
+      code: '',
+      ctrlKey: false,
+      metaKey: false,
+      altKey: false,
+      shiftKey: false,
+      repeat: false,
+      isComposing: false,
+      target: null,
+    })
+
+  const mounted = mount(
+    host as unknown as HTMLElement,
+    backend as unknown as Parameters<typeof mount>[1],
+    () =>
+      HStack(
+        { spacing: 0 },
+        Rectangle().fill('#111').frame(100, null).onKey((k) => log.push(`a:${k.key}`)),
+        Rectangle().fill('#222').frame(100, null),
+        Rectangle().fill('#333').expand().onKey((k) => log.push(`c:${k.key}`)),
+      ),
+  )
+
+  down(10, 10, 1) // press the first rect → it is focused
+  press('x')
+  check('the pressed view receives keys', log, ['a:x'])
+
+  down(150, 10, 1) // press the plain rect → nothing is focused
+  press('y')
+  check('a press on no key view blurs', log, ['a:x'])
+
+  down(250, 10, 1) // press the third rect → focus moves
+  press('z')
+  check('focus follows the press', log, ['a:x', 'c:z'])
+
+  // A key-capable leaf wins over its key-capable parent: both wrap the same
+  // rect, and the inner KeyMod lands later in the hit list.
+  mounted.unmount()
+
+  const innerMount = mount(
+    host as unknown as HTMLElement,
+    backend as unknown as Parameters<typeof mount>[1],
+    () =>
+      HStack({ spacing: 0 },
+        Rectangle().fill('#111').expand().onKey((k) => log.push(`outer:${k.key}`)),
+        Rectangle().fill('#222').frame(40, null).onKey((k) => log.push(`inner:${k.key}`)),
+      ),
+  )
+  down(10, 10, 1) // inside the outer rect, outside the inner one
+  press('o')
+  check('the outer view is focused outside its child', log, ['a:x', 'c:z', 'outer:o'])
+
+  down(280, 10, 1) // inside the inner rect
+  press('i')
+  check('a key-capable leaf wins over its parent', log, ['a:x', 'c:z', 'outer:o', 'inner:i'])
+
+  // Plain data passes through whole: repeat, modifiers and isComposing.
+  down(10, 10, 1) // refocus the outer
+  keydown({
+    key: 'Enter',
+    code: 'Enter',
+    ctrlKey: true,
+    metaKey: false,
+    altKey: false,
+    shiftKey: true,
+    repeat: true,
+    isComposing: false,
+    target: null,
+  })
+  check(
+    'repeat and modifiers pass through to the handler',
+    log[log.length - 1],
+    'outer:Enter',
+  )
+
+  innerMount.unmount()
+
+  // The guard: a keydown aimed at a DOM textarea must not reach the view.
+  const textareaMount = mount(
+    host as unknown as HTMLElement,
+    backend as unknown as Parameters<typeof mount>[1],
+    () => Rectangle().fill('#111').expand().onKey((k) => log.push(`t:${k.key}`)),
+  )
+  down(10, 10, 1)
+  keydown({
+    key: 'q',
+    code: '',
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    repeat: false,
+    isComposing: false,
+    target: { tagName: 'TEXTAREA' },
+  })
+  check('keys aimed at a textarea are not routed', log[log.length - 1] !== 't:q', true)
+
+  textareaMount.unmount()
 }
 
 /* 14. A scroll view's bar is a real thumb: dragging it scrolls the content. */

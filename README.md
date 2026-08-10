@@ -52,8 +52,9 @@ mount(document.getElementById('app')!, createCanvasBackend(), app)
 ```
 
 The toolkit ships as ESM and has no dependencies, so it bundles with anything —
-Vite, esbuild, Rollup, webpack. See [`examples/npm`](examples/npm/) for a
-complete, runnable example.
+Vite, esbuild, Rollup, webpack. For a complete, runnable example — a page that
+installs `@pixdeo/weavekit` and mounts a live counter — see
+[`examples/npm`](https://github.com/pixdeo/weavekit/tree/main/examples/npm).
 
 ## Project status and contributing
 
@@ -389,6 +390,39 @@ finger and stay inert under a mouse.
 A `ScrollView` uses both halves of this. Its bars are real thumbs you can drag,
 sized to a grabbable target rather than to the 4px they draw; and the content
 itself pans under a finger, which the next section covers.
+
+## Keyboard input
+
+The toolkit also routes the keyboard — the third input axis, after pointer and
+wheel. A view opts in with `.onKey()`, pressing it focuses it, and `keydown`
+events land there until the next press:
+
+```ts
+const cell = signal('')
+Text(() => cell())
+  .onKey((k) => {
+    if (k.key.length === 1) cell.set((v) => v + k.key)
+    if (k.key === 'Backspace') cell.set((v) => v.slice(0, -1))
+  })
+```
+
+The handler gets a plain `Key` — the value, the physical `code`, the modifier
+flags, `repeat` and `isComposing` — never a DOM event, so views stay
+backend-agnostic and the headless checks can dispatch keys without a browser.
+Focus follows the press like an input's focus: pressing a key-capable view
+makes it the target, pressing anything else blurs it. The target survives
+rebuilds, because the very rebuild its keys cause must not drop it
+mid-keystroke — the handler reads the state it closed over, usually signals.
+
+Two boundaries are deliberate:
+
+- **Keys aimed at a DOM input are never stolen.** A textarea overlaid on the
+  canvas (the gallery's code editor) keeps its keystrokes; the routing checks
+  the event's target first.
+- **This is not canvas-native text editing.** There is no caret, selection or
+  IME. A view that wants to be edited keeps its text in a signal and maps keys
+  to it — exactly what the design-canvas and spreadsheet examples do. A text
+  field that needs real editing stays a DOM overlay, as [above](#dom-on-top-of-the-canvas).
 
 ## Animation
 

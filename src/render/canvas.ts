@@ -115,7 +115,16 @@ export function createCanvasBackend(): Backend {
     },
 
     capturePointer(id) {
-      canvas.setPointerCapture(id)
+      // Throws NotFoundError when the pointer is already gone — a fast tap, a
+      // synthetic event, a pointer the browser retired between the event and
+      // this call. The gesture is worth keeping either way: uncaptured it
+      // still tracks while the pointer stays over the element, which beats
+      // letting the throw abort the whole pointerdown handler.
+      try {
+        canvas.setPointerCapture(id)
+      } catch {
+        /* not capturable */
+      }
     },
 
     releasePointer(id) {

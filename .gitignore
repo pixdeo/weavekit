@@ -3,3 +3,6 @@ dist
 dist-check
 .DS_Store
 *.log
+
+# Agent worktrees
+.claude/

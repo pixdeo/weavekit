@@ -91,7 +91,13 @@ export function createDomBackend(outline = false): Backend {
     // Capture goes on the container, not the op elements — `draw` replaces
     // those every frame and would drop the capture with them.
     capturePointer(id) {
-      root.setPointerCapture(id)
+      // See the canvas backend: an already-retired pointer throws, and losing
+      // the capture is much cheaper than losing the gesture.
+      try {
+        root.setPointerCapture(id)
+      } catch {
+        /* not capturable */
+      }
     },
 
     releasePointer(id) {

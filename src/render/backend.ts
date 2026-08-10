@@ -20,6 +20,10 @@ export interface Backend {
   /**
    * Routes this pointer's events here until it is released, even once it
    * leaves the element. Without it a drag dies at the first edge it crosses.
+   *
+   * Must not throw. The DOM's `setPointerCapture` does, for a pointer that is
+   * no longer active, and a backend that lets that escape aborts the whole
+   * pointerdown — losing the gesture to save the capture.
    */
   capturePointer(id: number): void
   releasePointer(id: number): void

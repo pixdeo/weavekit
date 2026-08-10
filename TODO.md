@@ -53,11 +53,12 @@ map and a release process.
   pointers over one view and reports scale and rotation rather than a
   displacement. Pinch-to-zoom in particular belongs with Camera (item 2) —
   without a transform on the root there is nothing for it to drive.
-- **A pan cannot chain mid-gesture.** A `ScrollView` with nothing to move
-  registers no pan hit, so the press reaches an enclosing viewport; but one
-  that runs out of room part-way through a drag clamps and holds, because it
-  already owns the pointer and a capture cannot be transferred. The wheel
-  chains in both cases. `views/scroll.ts`.
+- **Neither a pan nor a wheel chains mid-gesture.** A `ScrollView` with
+  nothing to scroll still hands the input outwards, but one that *runs out*
+  part-way through keeps it and bands. For a pan that is forced — it owns the
+  pointer and a capture cannot be transferred — and for the wheel it is a
+  choice, matching native scroll latching. Worth revisiting together if either
+  ever needs to hand over. `views/scroll.ts`.
 - **No drag threshold, and no way to cancel.** A press starts the gesture
   immediately, so a view cannot both tap and drag on the same press; there is
   also no Escape-to-revert. Both belong in `mount`, not in each handler.
@@ -69,6 +70,10 @@ map and a release process.
   content never overshoots on its own. A spring with damping below 1 already
   overshoots and the viewport already renders out-of-range offsets, so this is
   a matter of choosing the target, not new machinery. `views/scroll.ts`.
+- **The end of a wheel gesture is a 100ms timeout.** There is no event for a
+  trackpad being released, and momentum deltas keep arriving after it, so the
+  bounce is scheduled on a gap. It is the one heuristic in the scrolling path.
+  `views/scroll.ts`.
 - **No keyboard, no focus.** No focus ring, no tab order, no arrow-key or
   page-up/down scrolling.
 - **No accessibility.** A canvas is opaque to screen readers. The usual answer

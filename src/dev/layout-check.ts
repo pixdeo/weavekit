@@ -1543,5 +1543,96 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   }
 }
 
+/* 20. The wheel bands too. A trackpad is how most people meet a scroll view,
+       and it has no release event to hang a bounce off — only a gap. */
+{
+  const { ScrollView } = await import('../views/scroll')
+  const { advanceAnimations, animated, spring } = await import('../core/animation')
+  const { signal } = await import('../core/signal')
+
+  const tick = (ms = 16): boolean => {
+    const running = advanceAnimations(advanceClock(ms))
+    flushFrame()
+    return running
+  }
+  /** Real time, because the bounce is scheduled on a real timer. */
+  const idle = () => new Promise((r) => setTimeout(r, 160))
+
+  const rows = VStack({ spacing: 0 }, ...Array.from({ length: 10 }, () => Rectangle().frame(100, 20)))
+  const regionFor = (axis: Parameters<typeof ScrollView>[0], child = rows) => {
+    const ctx = new Ctx()
+    const v = ScrollView(axis, child)
+    v.measure({ w: 100, h: 100 }, ctx)
+    v.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+    return ctx.scrolls[0]
+  }
+
+  /* A plain axis clamps and chains, exactly as before. */
+  {
+    const y = signal(0)
+    check('a plain axis does not band past the top', regionFor({ y }).scroll(0, -50), false)
+    check('and stays put', y(), 0)
+  }
+
+  /* An animated one bands and keeps the wheel. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    check('an animated axis consumes a wheel past the top', regionFor({ y }).scroll(0, -50), true)
+    check('and goes out of range', y.target() < 0, true)
+
+    // Accumulation is onto the target, so a second notch adds to the first
+    // rather than being measured from a value still animating toward it.
+    const first = y.target()
+    regionFor({ y }).scroll(0, -50)
+    check('a second notch accumulates onto the first', y.target() < first, true)
+    check('but bands harder, so it adds less', y.target() > first * 2, true)
+
+    // Let the band actually get there, so the bounce is a real journey back
+    // rather than a retarget from a value that never left zero.
+    let frames = 0
+    while (tick() && frames < 400) frames++
+    check('the content sits out of range', y() < 0, true)
+
+    await idle()
+    check('going quiet springs it back', y.target(), 0)
+    frames = 0
+    while (tick() && frames < 400) frames++
+    check('and it arrives', [y.animating(), Math.round(y())], [false, 0])
+  }
+
+  /* Nothing to scroll still chains out, elastic or not. This is what stops an
+     enclosing viewport from swallowing a wheel aimed at something inside it. */
+  {
+    const y = animated(0, spring())
+    const short = Rectangle().frame(100, 40)
+    check('an elastic axis with nothing to scroll chains out', regionFor({ y }, short).scroll(0, -50), false)
+    check('and does not band', y.target(), 0)
+    await idle()
+    check('nor schedule a bounce', y.animating(), false)
+  }
+
+  /* A press cancels a pending wheel bounce rather than letting it fire under
+     the finger. */
+  {
+    const y = animated(0, spring({ response: 200, damping: 1 }))
+    const ctx = new Ctx()
+    const v = ScrollView({ y }, rows)
+    v.measure({ w: 100, h: 100 }, ctx)
+    v.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+    ctx.scrolls[0].scroll(0, -50)
+    let frames = 0
+    while (tick() && frames < 400) frames++
+    const banded = y.target()
+
+    ctx.hits.find((h) => h.drag?.pointerTypes)!.drag!.onStart!({
+      x: 0, y: 0, dx: 0, dy: 0, tx: 0, ty: 0,
+      startX: 0, startY: 0, vx: 0, vy: 0, pointerType: 'touch' as const,
+    })
+    await idle()
+    check('a press cancels the pending bounce', y.target(), banded)
+    check('and nothing is animating', y.animating(), false)
+  }
+}
+
 console.log(failures === 0 ? '\nall layout checks passed' : `\n${failures} check(s) failed`)
 if (failures > 0) process.exitCode = 1

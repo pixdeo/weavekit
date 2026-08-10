@@ -447,10 +447,22 @@ and thumbs write through `settle`; only the wheel and the release animate.
 
 ### Rubber-banding
 
-Dragging past an end does not stop dead. The offset is allowed outside the
-content, moving by a fraction of the finger that shrinks the further it is
-pulled, and springs back on release. This is why the viewport reads its offset
-unclamped: a bounce that is clipped away is not a bounce.
+Reaching an end does not stop dead. The offset is allowed outside the content,
+moving by a fraction of the input that shrinks the further it is pushed, and
+springs back afterwards. This is why the viewport reads its offset unclamped:
+a bounce that is clipped away is not a bounce.
+
+It applies to the wheel as much as to a finger, which matters more than it
+sounds — a trackpad is how most people will meet a scroll view, and a bounce
+only touch devices can see is a bounce nobody sees. The wheel has no release
+event to hang it off, though: there is no "the fingers left the trackpad", and
+a momentum phase keeps delivering deltas long after they did. So the end of a
+wheel gesture is inferred from a 100ms gap. That is the one piece of this that
+is a heuristic rather than a consequence.
+
+Wheel deltas also accumulate onto where the axis is **heading**, not where it
+is. An animated axis is mid-flight for most of a scroll, so measuring from the
+current value quietly loses part of every notch after the first.
 
 The resistance curve is Apple's, and so is its useful property — displacement
 asymptotes at `viewport / 0.55`, so however hard the content is pulled it can
@@ -495,10 +507,13 @@ Two details that matter once viewports nest:
 
 - A viewport registers its scroll region **before** placing its child, so
   inner viewports land later in the list and win the wheel.
-- A region that cannot move in the requested direction reports that it did not
-  consume the wheel, and it chains outwards. Without this, an outer viewport
-  with nothing to scroll silently swallows every wheel event aimed at an inner
-  one.
+- A region with **nothing to scroll** reports that it did not consume the
+  wheel, and it chains outwards. Without this, an outer viewport with nothing
+  to scroll silently swallows every wheel event aimed at an inner one.
+- A region that has scrollable content but has reached its end **keeps** the
+  wheel and bands, rather than handing it outwards mid-gesture. That is what a
+  native nested scroller does: once a gesture is in a region, it stays there.
+  A plain (non-animated) axis has no band, so it still chains at its end.
 
 A finger dragging the content pans it 1:1 — drag down, the content comes down.
 A mouse does not, because a mouse press on content is a press: taps and text

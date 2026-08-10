@@ -104,6 +104,50 @@ const release = (axis: ScrollAxis | null, velocity: number, max: number): void =
   axis.set(clamp(project(at, velocity), 0, max), velocity)
 }
 
+/**
+ * How long after the last wheel event the content springs back, in ms.
+ *
+ * A wheel has no release to hook onto — there is no event for "the fingers
+ * left the trackpad", and a momentum phase keeps delivering deltas long after
+ * they did. So the end of the gesture has to be inferred from a gap, and this
+ * is the shortest gap that is not one. Comfortably longer than a frame at
+ * 60Hz, comfortably shorter than a deliberate pause.
+ */
+const WHEEL_IDLE = 100
+
+/**
+ * Pending bounce-backs, keyed by the axis they will move.
+ *
+ * A `ScrollViewImpl` is rebuilt every frame, so it is the wrong place to keep
+ * anything that has to outlive one. The axis signal is the stable object in
+ * play — the caller owns it and it is the same object across frames — so it is
+ * what the timer hangs off.
+ */
+const bounces = new WeakMap<Animated, ReturnType<typeof setTimeout>>()
+
+const cancelBounce = (axis: ScrollAxis | null): void => {
+  if (!axis || !flingable(axis)) return
+  const pending = bounces.get(axis)
+  if (pending === undefined) return
+  clearTimeout(pending)
+  bounces.delete(axis)
+}
+
+const scheduleBounce = (axis: Animated, max: number): void => {
+  cancelBounce(axis)
+  bounces.set(
+    axis,
+    setTimeout(() => {
+      bounces.delete(axis)
+      // Where it is *heading*, not where it is. The wheel animates each notch,
+      // so the value is still on its way out when this fires and testing it
+      // would call an overscroll in progress "in range" and skip the bounce.
+      const at = axis.target()
+      if (at < 0 || at > max) axis.set(clamp(at, 0, max), 0)
+    }, WHEEL_IDLE),
+  )
+}
+
 const BAR_THICKNESS = 4
 const BAR_INSET = 3
 const BAR_MIN = 24
@@ -155,22 +199,11 @@ class ScrollViewImpl extends View {
     ctx.addScroll({
       rect,
       scroll: (dx, dy) => {
-        let moved = false
-        if (this.axes.x) {
-          const next = clamp(x + dx, 0, maxX)
-          if (next !== x) {
-            this.axes.x.set(next)
-            moved = true
-          }
-        }
-        if (this.axes.y) {
-          const next = clamp(y + dy, 0, maxY)
-          if (next !== y) {
-            this.axes.y.set(next)
-            moved = true
-          }
-        }
-        return moved
+        // `||` after the call on purpose: both axes must run, and only then
+        // does it matter whether either of them did anything.
+        const movedX = this.axes.x ? this.wheel(this.axes.x, dx, maxX, rect.w) : false
+        const movedY = this.axes.y ? this.wheel(this.axes.y, dy, maxY, rect.h) : false
+        return movedX || movedY
       },
     })
 
@@ -188,6 +221,30 @@ class ScrollViewImpl extends View {
       )
       this.drawBars(rect, content, x, y, maxX, maxY, ctx)
     })
+  }
+
+  /**
+   * One wheel delta on one axis. Reports whether it was consumed.
+   *
+   * Deltas accumulate onto where the axis is *heading*, not where it is. An
+   * animated axis is mid-flight for most of a scroll, so measuring from the
+   * current value loses part of every notch after the first.
+   *
+   * An elastic axis bands past its ends and keeps the wheel, which is what a
+   * native nested scroller does: once a gesture is in a region, that region
+   * owns it and rubber-bands rather than handing it outwards mid-scroll. A
+   * region with nothing to scroll still reports false, so the wheel chains out
+   * of an enclosing viewport that cannot move — that rule has not changed.
+   */
+  private wheel(axis: ScrollAxis, delta: number, max: number, dim: number): boolean {
+    const elastic = flingable(axis) && max > 0
+    const from = flingable(axis) ? axis.target() : axis()
+    const next = band(unband(from, max, dim) + delta, max, dim, elastic)
+    if (next === from) return false
+    axis.set(next)
+    // Rescheduled on every delta, so it fires once the wheel goes quiet.
+    if (elastic) scheduleBounce(axis, max)
+    return true
   }
 
   /**
@@ -229,6 +286,10 @@ class ScrollViewImpl extends View {
         pointerTypes: ['touch', 'pen'],
         onStart: () => {
           // A press during a fling or a bounce stops it where the content is.
+          // The wheel's pending bounce has to go too, or it fires mid-drag and
+          // pulls the content out from under the finger.
+          cancelBounce(panX)
+          cancelBounce(panY)
           if (panX && flingable(panX)) panX.settle(panX())
           if (panY && flingable(panY)) panY.settle(panY())
           fromX = unband(panX?.() ?? 0, maxX, rect.w)

@@ -28,10 +28,47 @@ const win = globalThis as unknown as {
   requestAnimationFrame?: unknown
 }
 win.window = { addEventListener: () => {}, removeEventListener: () => {}, devicePixelRatio: 1 }
-// Synchronous frames keep the checks deterministic.
+/**
+ * A fake frame clock. Frames are handed its current value, and the animation
+ * checks step it, so the mount loop and the animation driver agree on the
+ * time without either one reading a real one.
+ */
+let clock = 0
+const advanceClock = (ms: number): number => (clock += ms)
+
+let inFrame = false
+let parked: ((t: number) => void) | null = null
+
+const runFrame = (cb: (t: number) => void): void => {
+  inFrame = true
+  try {
+    cb(clock)
+  } finally {
+    inFrame = false
+  }
+}
+
+/**
+ * Synchronous frames keep the checks deterministic. A frame requested from
+ * *inside* a frame is parked rather than nested: once `mount` drives the
+ * animation driver it asks for the next frame from within the current one, and
+ * running that inline would recurse until the stack gave out.
+ */
 win.requestAnimationFrame = (cb: (t: number) => void) => {
-  cb(0)
+  if (inFrame) parked = cb
+  else runFrame(cb)
   return 0
+}
+
+/**
+ * Runs a parked frame, if there is one. Deliberately one at a time: an
+ * animation in flight parks a fresh frame every time it runs, so draining to
+ * empty would never finish.
+ */
+const flushFrame = (): void => {
+  const cb = parked
+  parked = null
+  if (cb) runFrame(cb)
 }
 
 const { hitTestable } = await import('../core/types')
@@ -615,6 +652,284 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   fits.measure({ w: 100, h: 100 }, still)
   fits.place({ x: 0, y: 0, w: 100, h: 100 }, still)
   check('content that fits registers no thumb', still.hits.length, 0)
+}
+
+/* 15. Animation. The mount loop does not yet feed the driver a timestamp, so
+       these step it by hand — which is the point of an injected clock. */
+{
+  const {
+    advanceAnimations,
+    animated,
+    easeIn,
+    easeInOut,
+    easeOut,
+    linear,
+    mixColor,
+    spring,
+    tween,
+  } = await import('../core/animation')
+  const { track } = await import('../core/signal')
+
+  const approx = (v: number, places = 4): number => {
+    const f = 10 ** places
+    return Math.round(v * f) / f
+  }
+
+  /**
+   * One frame of fake time. Shares the harness clock with `requestAnimation-
+   * Frame`, so that once `mount` advances the driver itself the two agree and
+   * the same moment is never stepped twice. `flushFrame` covers that case too:
+   * a mount that asked for another frame from inside one gets it here.
+   */
+  const tick = (ms = 16): boolean => {
+    const running = advanceAnimations(advanceClock(ms))
+    flushFrame()
+    return running
+  }
+
+  /* Easings. */
+  check('linear is the identity', [linear(0), linear(0.5), linear(1)], [0, 0.5, 1])
+  check('every easing pins both ends', [easeIn(0), easeIn(1), easeOut(0), easeOut(1)], [0, 1, 0, 1])
+  check('ease-in starts slow', easeIn(0.5) < 0.5, true)
+  check('ease-out starts fast', easeOut(0.5) > 0.5, true)
+  check('ease-in-out is symmetric about the midpoint', approx(easeInOut(0.5)), 0.5)
+
+  /* An idle driver reports nothing in flight and does not throw. */
+  check('an idle driver reports no animations', tick(), false)
+
+  /* A tween walks its curve, lands exactly, and reports completion. */
+  {
+    const a = animated(0, tween({ duration: 100, easing: linear }))
+    check('a fresh value reads its initial', a(), 0)
+    check('a fresh value is not animating', a.animating(), false)
+
+    a.set(100)
+    check('setting a target does not jump', a(), 0)
+    check('the target is readable before the value gets there', a.target(), 100)
+    check('setting a target puts it in flight', a.animating(), true)
+
+    check('the driver reports work in progress', tick(20), true)
+    check('a linear tween is 20% in after 20ms of 100', approx(a()), 20)
+    tick(30)
+    check('and halfway again at 50ms', approx(a()), 50)
+
+    // Overshooting the duration clamps rather than extrapolating.
+    check('the last step reports completion', tick(60), false)
+    check('a finished tween sits exactly on its target', a(), 100)
+    check('a finished tween stops animating', a.animating(), false)
+
+    // Nothing left in the registry, so further ticks are free and idempotent.
+    tick(100)
+    check('a settled value stays put', a(), 100)
+  }
+
+  /* Retargeting mid-flight is continuous in value. */
+  {
+    const a = animated(0, tween({ duration: 200, easing: easeInOut }))
+    a.set(100)
+    tick(60)
+    const before = a()
+    a.set(-50)
+    check('a retarget leaves the value where it was', a(), before)
+    check('a retarget updates the target', a.target(), -50)
+    // The tween re-runs its curve from here, so the next step moves the other
+    // way rather than continuing toward the abandoned target.
+    tick(16)
+    check('a retarget reverses direction', a() < before, true)
+    a.settle()
+    check('settling a tween lands on the live target', a(), -50)
+  }
+
+  /* A spring carries its velocity across a retarget — the whole point. */
+  {
+    const a = animated(0, spring({ response: 300, damping: 1 }))
+    a.set(200)
+    tick(16)
+    tick(16)
+    const value = a()
+    const velocity = a.velocity()
+    check('a spring is moving after two frames', velocity > 0, true)
+
+    a.set(400)
+    check('a retargeted spring keeps its value', a(), value)
+    check('a retargeted spring keeps its velocity', a.velocity(), velocity)
+    check('the new target is live', a.target(), 400)
+
+    // And it is still continuous one step later: no discontinuity in speed,
+    // which a restart would produce.
+    const stepped = a()
+    tick(16)
+    check('it carries on in the same direction', a() > stepped, true)
+    // Left running, it would keep the driver busy for the blocks below.
+    a.settle()
+  }
+
+  /* Critical damping converges without overshooting; below 1 it overshoots. */
+  {
+    const a = animated(0, spring({ response: 200, damping: 1 }))
+    a.set(100)
+    let peak = 0
+    let frames = 0
+    while (tick() && frames < 600) {
+      peak = Math.max(peak, a())
+      frames++
+    }
+    check('a critically damped spring never overshoots', peak <= 100, true)
+    check('it comes to rest exactly on the target', a(), 100)
+    check('and reports itself at rest', a.animating(), false)
+    check('within a plausible number of frames', frames > 5 && frames < 100, true)
+
+    const b = animated(0, spring({ response: 200, damping: 0.4 }))
+    b.set(100)
+    let over = false
+    let n = 0
+    while (tick() && n < 600) {
+      if (b() > 100) over = true
+      n++
+    }
+    check('an underdamped spring overshoots', over, true)
+    check('and still lands on the target', b(), 100)
+
+    // The third closed form. Above 1 the two exponentials are real and the
+    // slow one dominates, so the same move takes noticeably longer.
+    const c = animated(0, spring({ response: 200, damping: 2 }))
+    c.set(100)
+    let slow = 0
+    while (tick() && slow < 900) slow++
+    check('an overdamped spring lands on the target', c(), 100)
+    check('and takes longer than the critically damped one', slow > frames, true)
+  }
+
+  /* Velocity can be injected — this is what a fling would hand over. */
+  {
+    const a = animated(0, spring({ response: 300, damping: 1 }))
+    a.set(0, -400)
+    check('a kick with no change of target still animates', a.animating(), true)
+    check('the injected velocity is visible immediately', a.velocity(), -400)
+    tick(16)
+    check('it travels away from the target first', a() < 0, true)
+    let n = 0
+    while (tick() && n < 600) n++
+    check('and comes back to rest on it', a(), 0)
+  }
+
+  /* Settling is instant, at rest, and skips the rest of the curve. */
+  {
+    const a = animated(0, spring())
+    a.set(500)
+    tick(16)
+    check('mid-flight the value is short of the target', a() < 500, true)
+    a.settle()
+    check('settle lands immediately', a(), 500)
+    check('settle stops the animation', a.animating(), false)
+    check('settle leaves no velocity', a.velocity(), 0)
+    check('the driver has nothing left to advance', tick(), false)
+
+    a.settle(-20)
+    check('settle can name its own value', a(), -20)
+    check('and it becomes the target', a.target(), -20)
+  }
+
+  /* Reads register dependencies, and the value and the phase are separate
+     signals so a target readout is not rebuilt sixty times a second. */
+  {
+    const a = animated(0, spring())
+    check('reading the value registers a dependency', track(() => a()).deps.size, 1)
+    check('reading animating() registers a dependency', track(() => a.animating()).deps.size, 1)
+    const valueDep = [...track(() => a()).deps][0]
+    const phaseDep = [...track(() => a.target()).deps][0]
+    check('the value and the phase are different signals', valueDep !== phaseDep, true)
+  }
+
+  /* Independent animations share one driver. */
+  {
+    const quick = animated(0, tween({ duration: 40, easing: linear }))
+    const slow = animated(0, tween({ duration: 400, easing: linear }))
+    quick.set(10)
+    slow.set(10)
+    tick(50)
+    check('the short tween has finished', quick.animating(), false)
+    check('the long one has not', slow.animating(), true)
+    check('the driver still reports work while one runs', tick(16), true)
+    check('the finished one is untouched by further ticks', quick(), 10)
+    slow.settle()
+  }
+
+  /* A stalled tab delivers one enormous frame; the step is capped so the
+     animation lags rather than teleporting. */
+  {
+    const a = animated(0, tween({ duration: 1000, easing: linear }))
+    a.set(1000)
+    tick(5000)
+    check('a huge frame gap advances by at most one capped step', approx(a()), 64)
+    a.settle()
+  }
+
+  /* Colour mixing, the one non-numeric thing worth having. */
+  check('mixColor at the midpoint', mixColor('#000000', '#ffffff', 0.5), '#808080')
+  check('mixColor at zero returns the start', mixColor('#102030', '#ffffff', 0), '#102030')
+  check('mixColor expands three-digit hex', mixColor('#000', '#fff', 1), '#ffffff')
+  check('mixColor clamps out-of-range t', mixColor('#000', '#fff', 9), '#ffffff')
+  check('mixColor falls back on unparseable input', mixColor('red', '#fff', 0.9), '#fff')
+
+  /* The signal contract holds end to end: advancing the driver invalidates
+     exactly the component that reads the animated value. */
+  {
+    const { mount } = await import('../core/mount')
+    const { component } = await import('../core/component')
+
+    let ops: { rect: { x: number } }[] = []
+    const backend = {
+      el: {},
+      resize: () => {},
+      draw: (o: typeof ops) => {
+        ops = o
+      },
+      onPointerDown: () => {},
+      onPointerMove: () => {},
+      onPointerUp: () => {},
+      capturePointer: () => {},
+      releasePointer: () => {},
+      onWheel: () => {},
+      setCursor: () => {},
+      destroy: () => {},
+    }
+    const host = { clientWidth: 400, clientHeight: 100, replaceChildren: () => {} }
+
+    const x = animated(0, tween({ duration: 100, easing: linear }))
+    const mounted = mount(
+      host as unknown as HTMLElement,
+      backend as unknown as Parameters<typeof mount>[1],
+      () =>
+        VStack(
+          { spacing: 0 },
+          component('moving', () => Rectangle().fill('#111').frame(20, 20).offset(() => x(), 0)),
+          component('still', () => Text('static')),
+        ),
+    )
+
+    check('the first frame builds both components', mounted.stats().built, 2)
+    check('the box starts unoffset', approx(ops[0].rect.x), 190)
+
+    // Naming a target moves nothing yet, and nothing reads the target here.
+    x.set(100)
+    flushFrame()
+    check('naming a target rebuilds nothing', mounted.stats().built, 0)
+    check('both components replay from cache', mounted.stats().reusedPlace, 2)
+
+    // Every tick writes the value, which notifies the mount; the harness makes
+    // requestAnimationFrame synchronous, so the frame has already happened.
+    tick(20)
+    check('a tick rebuilds only the reader', mounted.stats().built, 1)
+    check('the sibling stays cached', mounted.stats().reusedPlace, 1)
+    check('the animated value advanced', approx(x()), 20)
+    check('and the drawn box moved with it', approx(ops[0].rect.x), 210)
+
+    x.settle()
+    flushFrame()
+    check('settling redraws at the target', approx(ops[0].rect.x), 290)
+    mounted.unmount()
+  }
 }
 
 console.log(failures === 0 ? '\nall layout checks passed' : `\n${failures} check(s) failed`)

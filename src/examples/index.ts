@@ -6,6 +6,7 @@ import { flexibility } from './flexibility'
 import { interaction } from './interaction'
 import { dragging } from './dragging'
 import { scrolling } from './scrolling'
+import { animation } from './animation'
 import { embedding } from './embedding'
 
 /** Gallery order. The first entry is what a newcomer lands on. */
@@ -17,6 +18,7 @@ export const examples: Example[] = [
   interaction,
   dragging,
   scrolling,
+  animation,
   embedding,
 ]
 

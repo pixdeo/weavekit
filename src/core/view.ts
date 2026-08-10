@@ -11,6 +11,19 @@ import { concrete, inset, insets, shrink } from './types'
  * Modifiers are not special: each one is a view that wraps a child. That is why
  * `.padding().background()` differs from `.background().padding()` for free.
  */
+/**
+ * A number, or a number read at `place` time.
+ *
+ * The lazy form is what `Text(() => …)` already offers, and it is what makes
+ * an animated value usable: a plain number is captured when the view is built,
+ * so a value that moves every frame would freeze unless the whole subtree were
+ * rebuilt. The read happens inside the enclosing component's tracking scope,
+ * so it registers as a dependency and invalidation still works.
+ */
+export type Dynamic = number | (() => number)
+
+const dyn = (v: Dynamic): number => (typeof v === 'function' ? v() : v)
+
 export abstract class View {
   abstract measure(p: Proposal, ctx: Ctx): Size
   abstract place(rect: Rect, ctx: Ctx): void
@@ -44,11 +57,19 @@ export abstract class View {
     return new EnvMod(this, { foreground: color })
   }
 
-  opacity(o: number): View {
+  /**
+   * The two modifiers that take a `Dynamic` are the two that animate: a
+   * transition is a fade and a move. Both only read during `place` and
+   * neither changes layout, so a value that moves cannot invalidate a measure
+   * that has already happened. Widening the layout-affecting modifiers is a
+   * larger decision — it would want a consistent story across `frame`,
+   * `padding` and stack spacing — and is not needed to animate anything.
+   */
+  opacity(o: Dynamic): View {
     return new OpacityMod(this, o)
   }
 
-  offset(dx: number, dy: number): View {
+  offset(dx: Dynamic, dy: Dynamic): View {
     return new Offset(this, dx, dy)
   }
 
@@ -228,7 +249,7 @@ class EnvMod extends View {
 class OpacityMod extends View {
   constructor(
     private child: View,
-    private o: number,
+    private o: Dynamic,
   ) {
     super()
   }
@@ -238,15 +259,15 @@ class OpacityMod extends View {
   }
 
   place(rect: Rect, ctx: Ctx): void {
-    ctx.withEnv({ opacity: ctx.env.opacity * this.o }, () => this.child.place(rect, ctx))
+    ctx.withEnv({ opacity: ctx.env.opacity * dyn(this.o) }, () => this.child.place(rect, ctx))
   }
 }
 
 class Offset extends View {
   constructor(
     private child: View,
-    private dx: number,
-    private dy: number,
+    private dx: Dynamic,
+    private dy: Dynamic,
   ) {
     super()
   }
@@ -256,7 +277,7 @@ class Offset extends View {
   }
 
   place(rect: Rect, ctx: Ctx): void {
-    this.child.place({ ...rect, x: rect.x + this.dx, y: rect.y + this.dy }, ctx)
+    this.child.place({ ...rect, x: rect.x + dyn(this.dx), y: rect.y + dyn(this.dy) }, ctx)
   }
 }
 

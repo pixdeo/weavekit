@@ -11,9 +11,17 @@ import {
   Text,
   VStack,
   ZStack,
+  animated,
   clamp,
   component,
+  easeIn,
+  easeInOut,
+  easeOut,
+  linear,
+  mixColor,
   signal,
+  spring,
+  tween,
 } from '../index'
 
 /**
@@ -39,6 +47,14 @@ export const SANDBOX = {
   clamp,
   component,
   signal,
+  animated,
+  spring,
+  tween,
+  linear,
+  easeIn,
+  easeOut,
+  easeInOut,
+  mixColor,
 } as const
 
 export const SANDBOX_NAMES = Object.keys(SANDBOX)

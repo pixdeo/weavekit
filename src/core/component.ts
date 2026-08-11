@@ -7,9 +7,14 @@ import { trackInto, versionOf, type SignalId } from './signal'
  * A cached subtree.
  *
  * Without this, every signal write rebuilds, re-measures and re-draws the whole
- * view tree. A component remembers which signals its subtree read and, while
- * none of them are dirty, replays its cached size and draw ops instead of
- * running any of that work again.
+ * view tree. A component remembers which signals its subtree read and the
+ * version each had at that read and, while none of them have moved, replays its
+ * cached size and draw ops instead of running any of that work again.
+ *
+ * Recording the read-time version matters: a signal written during the run
+ * itself — say a layout reporter bumping a version from `onLayout` — must
+ * leave the entry stale for the next frame, or the write would be stamped over
+ * and never rebuilt.
  *
  * Reads register in every enclosing scope, so a dirty signal invalidates the
  * component that read it *and* its ancestors — the ancestors' cached ops embed
@@ -40,15 +45,6 @@ interface Entry {
 const isStale = (entry: Entry): boolean => {
   for (const [id, version] of entry.seen) if (versionOf(id) !== version) return true
   return false
-}
-
-/**
- * Records the current version of every dep. Called after each tracked run, so
- * a component that has just rebuilt is immediately considered fresh — that is
- * what stops a stack's repeated measure probes from rebuilding it each time.
- */
-const restamp = (entry: Entry): void => {
-  for (const id of entry.deps) entry.seen.set(id, versionOf(id))
 }
 
 export interface CacheStats {
@@ -143,8 +139,7 @@ class ComponentView extends View {
     // apply stop invalidating this component.
     entry.deps = new Set()
     entry.seen = new Map()
-    entry.view = trackInto(entry.deps, this.builder)
-    restamp(entry)
+    entry.view = trackInto(entry.deps, entry.seen, this.builder)
     entry.sizes.clear()
     entry.placeKey = null
     entry.ops = null
@@ -166,8 +161,7 @@ class ComponentView extends View {
       return cached
     }
 
-    const size = trackInto(entry.deps, () => view.measure(p, ctx))
-    restamp(entry)
+    const size = trackInto(entry.deps, entry.seen, () => view.measure(p, ctx))
     if (entry.sizes.size >= MEASURE_SLOTS) entry.sizes.clear()
     entry.sizes.set(key, size)
     ctx.cache!.stats.measured++
@@ -198,8 +192,7 @@ class ComponentView extends View {
     const hitStart = ctx.hits.length
     const scrollStart = ctx.scrolls.length
     const claimStart = ctx.claims.length
-    trackInto(entry.deps, () => view.place(rect, ctx))
-    restamp(entry)
+    trackInto(entry.deps, entry.seen, () => view.place(rect, ctx))
     entry.ops = ctx.ops.slice(opStart)
     entry.hits = ctx.hits.slice(hitStart)
     entry.scrolls = ctx.scrolls.slice(scrollStart)

@@ -744,7 +744,9 @@ Signal reads are tracked while a component builds, measures and places itself,
 so the component learns exactly which signals its subtree depends on. Each
 write bumps that signal's version; a component whose deps are all unchanged
 replays its cached size, draw ops and hit rects instead of doing any of that
-work again.
+work again. A component remembers the version each dep had *at the read*, not
+when the pass finished — so a signal written mid-pass, like a size reporter
+bumping one from `onLayout`, still invalidates it for the next frame.
 
 In the demo, clicking the counter rebuilds **1 of 8** components — the sidebar,
 its five rows and the content panel all replay from cache. Selecting a node

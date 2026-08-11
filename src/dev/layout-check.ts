@@ -536,12 +536,14 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   const result = compileSource(ex.code)
   if (result.ok) {
     let ops: InstanceType<typeof Ctx>['ops'] = []
+    const draws: InstanceType<typeof Ctx>['ops'][] = []
     let down: (x: number, y: number, id: number) => void = () => {}
     const backend = {
       el: {},
       resize: () => {},
       draw: (o: InstanceType<typeof Ctx>['ops']) => {
         ops = o
+        draws.push(o)
       },
       onPointerDown: (cb: typeof down) => {
         down = cb
@@ -587,6 +589,17 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     // Seeds B2=3, B3=7, B4=5 -> =SUM(B2:B4) → 15
     check('spreadsheet seeds sum to 15', sum(), '=SUM(B2:B4) → 15')
 
+    // The compile-time layout leaves vw at the throwaway 480px. The onLayout
+    // reporter must invalidate with the real size: at least one settled frame
+    // renders the full 600px viewport (A..I), not the stale A..G.
+    const fullViewport = (): boolean =>
+      draws.some((o) =>
+        o.filter((op) => op.t === 'text')
+          .map((op) => op.lines[0])
+          .filter((t) => /^[A-Z]+$/.test(t))
+          .join('') === 'ABCDEFGHI')
+    check('a frame fills the viewport after the size is learned', fullViewport(), true)
+
     // Tap B2 (x = 40 + 64 + 32, y = formula + 24 + 26 + 13) and type "4".
     down(136, 94, 1)
     check('tapping a cell moves the highlight', hl(), [104, 80])
@@ -606,6 +619,55 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     const highlighted = ops.filter((o) => o.t === 'rect' && o.fill === '#1e3a5f').length
     check('exactly one cell is highlighted', highlighted, 1)
   }
+}
+
+/* 12c. A signal written mid-pass (an onLayout reporter) must still invalidate
+       the component next frame. The old post-pass stamp masked such writes —
+       the spreadsheet's size-correction never rebuilt. */
+{
+  const { mount } = await import('../core/mount')
+  const { component } = await import('../core/component')
+  const { signal } = await import('../core/signal')
+
+  let builds = 0
+  let done = false
+  const tick = signal(0)
+  const view = component('reactive', () => {
+    builds++
+    tick()
+    return Rectangle().fill('#111').frame(50, 50)
+      .onLayout(() => {
+        if (!done) {
+          done = true
+          tick.set(n => n + 1)
+        }
+      })
+  })
+
+  const backend = {
+    el: {},
+    resize: () => {},
+    draw: () => {},
+    onPointerDown: () => {},
+    onPointerMove: () => {},
+    onPointerUp: () => {},
+    capturePointer: () => {},
+    releasePointer: () => {},
+    onWheel: () => {},
+    setCursor: () => {},
+    destroy: () => {},
+  }
+  const host = { clientWidth: 100, clientHeight: 100, replaceChildren: () => {} }
+  const mounted = mount(
+    host as unknown as HTMLElement,
+    backend as unknown as Parameters<typeof mount>[1],
+    () => view,
+  )
+
+  check('an onLayout write still rebuilds next frame', builds, 2)
+
+  mounted.invalidate()
+  check('...and the component settles afterwards', builds, 2)
 }
 
 /* 13. Pointer capture: a drag keeps the pointer after it leaves the view, and
@@ -1447,10 +1509,10 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
      signals so a target readout is not rebuilt sixty times a second. */
   {
     const a = animated(0, spring())
-    check('reading the value registers a dependency', track(() => a()).deps.size, 1)
-    check('reading animating() registers a dependency', track(() => a.animating()).deps.size, 1)
-    const valueDep = [...track(() => a()).deps][0]
-    const phaseDep = [...track(() => a.target()).deps][0]
+    check('reading the value registers a dependency', track(() => a()).reads.size, 1)
+    check('reading animating() registers a dependency', track(() => a.animating()).reads.size, 1)
+    const valueDep = [...track(() => a()).reads][0][0]
+    const phaseDep = [...track(() => a.target()).reads][0][0]
     check('the value and the phase are different signals', valueDep !== phaseDep, true)
   }
 

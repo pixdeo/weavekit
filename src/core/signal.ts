@@ -1,10 +1,12 @@
 /**
  * Minimal reactive value with dependency tracking.
  *
- * Reads that happen inside `track()` are recorded, so a component can learn
- * which signals its subtree actually depends on. Each write bumps that
- * signal's version; a component compares the versions it last saw against the
- * current ones to decide whether its cached work is still valid.
+ * Reads that happen inside `track()` are recorded together with the version
+ * each signal had at that moment, so a component can learn which signals its
+ * subtree depends on and how up to date those reads were. Each write bumps
+ * that signal's version; a component compares the versions its last reads
+ * saw against the current ones to decide whether its cached work is still
+ * valid.
  *
  * Versions rather than a shared dirty set: a dirty set has to be cleared by
  * whoever consumed it, which breaks as soon as two trees are mounted — the
@@ -20,8 +22,13 @@ export interface Signal<T> {
 
 let nextId: SignalId = 1
 
-/** Active tracking scopes, innermost last. A read registers in all of them. */
-const scopes: Set<SignalId>[] = []
+/**
+ * Active tracking scopes, innermost last. Each scope maps the signals it read
+ * to the version they had at that read — recording the read-time version
+ * (rather than stamping it after the run) is what lets a signal written mid
+ * run, say from an `onLayout` handler, still invalidate the caller.
+ */
+const scopes: Map<SignalId, number>[] = []
 
 const versions = new Map<SignalId, number>()
 const subscribers = new Set<() => void>()
@@ -38,7 +45,7 @@ export function signal<T>(initial: T): Signal<T> {
   let value = initial
 
   const read = (() => {
-    for (const scope of scopes) scope.add(id)
+    for (const scope of scopes) scope.set(id, versionOf(id))
     return value
   }) as Signal<T>
 
@@ -53,20 +60,33 @@ export function signal<T>(initial: T): Signal<T> {
   return read
 }
 
-/** Runs `fn`, collecting every signal it reads. */
-export function track<T>(fn: () => T): { value: T; deps: Set<SignalId> } {
-  const deps = new Set<SignalId>()
-  scopes.push(deps)
+/**
+ * Runs `fn`, collecting every signal it read and the version each one had at
+ * that read.
+ */
+export function track<T>(fn: () => T): { value: T; reads: Map<SignalId, number> } {
+  const reads = new Map<SignalId, number>()
+  scopes.push(reads)
   try {
-    return { value: fn(), deps }
+    return { value: fn(), reads }
   } finally {
     scopes.pop()
   }
 }
 
-/** Runs `fn`, merging every signal it reads into `deps`. */
-export function trackInto<T>(deps: Set<SignalId>, fn: () => T): T {
-  const { value, deps: found } = track(fn)
-  for (const id of found) deps.add(id)
+/**
+ * Runs `fn`, merging the signals it read into `deps` and their read-time
+ * versions into `seen`.
+ */
+export function trackInto<T>(
+  deps: Set<SignalId>,
+  seen: Map<SignalId, number>,
+  fn: () => T,
+): T {
+  const { value, reads } = track(fn)
+  for (const [id, version] of reads) {
+    deps.add(id)
+    seen.set(id, version)
+  }
   return value
 }

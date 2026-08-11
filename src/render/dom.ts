@@ -52,7 +52,13 @@ export function createDomBackend(outline = false): Backend {
           const left = Math.max(0, op.clip.x - op.rect.x)
           const right = Math.max(0, op.rect.x + op.rect.w - (op.clip.x + op.clip.w))
           const bottom = Math.max(0, op.rect.y + op.rect.h - (op.clip.y + op.clip.h))
-          d.style.clipPath = `inset(${top}px ${right}px ${bottom}px ${left}px)`
+          const round = op.clip.radius ? ` round ${op.clip.radius}px` : ''
+          d.style.clipPath = `inset(${top}px ${right}px ${bottom}px ${left}px${round})`
+        }
+
+        if (op.t !== 'text' && op.shadow) {
+          const s = op.shadow
+          d.style.boxShadow = `${s.dx}px ${s.dy}px ${s.blur}px ${s.color}`
         }
 
         if (op.t === 'rect') {
@@ -65,6 +71,7 @@ export function createDomBackend(outline = false): Backend {
           d.style.borderRadius = '50%'
         } else {
           d.style.font = `${op.font.weight} ${op.font.size}px/${op.lineHeight} ${op.font.family}`
+          if (op.font.spacing) d.style.letterSpacing = `${op.font.spacing}px`
           d.style.color = op.color
           d.style.whiteSpace = 'pre'
           d.textContent = op.lines.join('\n')

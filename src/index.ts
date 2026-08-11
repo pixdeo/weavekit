@@ -23,6 +23,7 @@ export { dslToJs, jsToBlocks, DslSyntaxError } from './core/dsl'
 export type { DslOutput } from './core/dsl'
 export type {
   Align,
+  Clip,
   Drag,
   DragHandlers,
   DrawOp,
@@ -34,6 +35,7 @@ export type {
   Proposal,
   Rect,
   ScrollRegion,
+  Shadow,
   Size,
 } from './core/types'
 export { clamp, pointerTypeOf } from './core/types'

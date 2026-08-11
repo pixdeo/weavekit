@@ -17,7 +17,13 @@ stub.document = {
         get font() {
           return `${size}px`
         },
-        measureText: (s: string) => ({ width: s.length * size * 0.5 }),
+        // Honours letterSpacing the way a real context does, so a check can
+        // tell whether the toolkit actually applied it before measuring.
+        letterSpacing: '0px',
+        measureText(s: string) {
+          const extra = parseFloat(this.letterSpacing) || 0
+          return { width: s.length * size * 0.5 + extra * s.length }
+        },
       }
     },
   }),
@@ -2252,6 +2258,133 @@ VStack {
   /* And a trip there and back lands on JavaScript that still compiles. */
   const roundTrip = dslToJs(jsToBlocks(examples[0].code))
   check('blocks survive a round trip back to JavaScript', compileView(roundTrip.code).ok, true)
+}
+
+/* 24. Four primitives the draw ops did not carry: a shadow, letter spacing, a
+       rounded clip, and hover as something a view can be told about. */
+{
+  const { mount } = await import('../core/mount')
+  const { signal } = await import('../core/signal')
+  const { textWidth } = await import('../core/text-measure')
+
+  /* A shadow rides on the shape's own op, so the backend can use the canvas's
+     native one instead of the caller faking a blur out of rectangles. */
+  {
+    const ctx = new Ctx()
+    const v = RoundedRect(8).fill('#111').shadow('rgba(0,0,0,.5)', { blur: 20, dy: 6 })
+    // A `Shape` measures without the context, and its signature says so.
+    v.measure({ w: 100, h: 40 })
+    v.place({ x: 0, y: 0, w: 100, h: 40 }, ctx)
+    const op = ctx.ops[0]
+    check('a shape carries its shadow', op.t === 'rect' && op.shadow, {
+      color: 'rgba(0,0,0,.5)',
+      blur: 20,
+      dx: 0,
+      dy: 6,
+    })
+
+    const plain = new Ctx()
+    const bare = RoundedRect(8).fill('#111')
+    bare.measure({ w: 100, h: 40 })
+    bare.place({ x: 0, y: 0, w: 100, h: 40 }, plain)
+    check('a shape without one carries nothing', plain.ops[0].t === 'rect' && plain.ops[0].shadow, undefined)
+  }
+
+  /* Letter spacing belongs to the font because it changes what a string
+     measures — layout and drawing have to agree about that. */
+  {
+    const font = { size: 20, weight: 400, family: 'check-spacing' }
+    const tight = textWidth('abcd', font)
+    const loose = textWidth('abcd', { ...font, spacing: 3 })
+    check('spacing widens a measured string', loose > tight, true)
+    check('and by the amount asked for', loose - tight, 12)
+
+    const ctx = new Ctx()
+    const t = Text('abcd').font({ size: 20, spacing: 3 })
+    const size = t.measure({ w: null, h: null }, ctx)
+    t.place({ x: 0, y: 0, w: size.w, h: size.h }, ctx)
+    const op = ctx.ops[0]
+    check('the text op carries it to the backend', op.t === 'text' && op.font.spacing, 3)
+    check('and the view measured with it', Math.round(size.w), Math.round(loose))
+  }
+
+  /* A rounded clip, and the one case it has to give up its rounding. */
+  {
+    const ctx = new Ctx()
+    const v = Rectangle().fill('#111').frame(200, 200).frame(100, 60).clip(12)
+    v.measure({ w: 100, h: 60 }, ctx)
+    v.place({ x: 0, y: 0, w: 100, h: 60 }, ctx)
+    check('the clip window is rounded', ctx.ops[0].clip?.radius, 12)
+
+    // Nested inside something tighter, the intersection is not a rounded rect
+    // any more, so the rounding goes rather than being drawn wrong.
+    const nested = new Ctx()
+    const inner = Rectangle().fill('#111').frame(200, 200).frame(100, 60).clip(12)
+    const outer = inner.frame(60, 60).clip()
+    outer.measure({ w: 60, h: 60 }, nested)
+    outer.place({ x: 0, y: 0, w: 60, h: 60 }, nested)
+    check('a clip cut into by another gives up its rounding', nested.ops[0].clip?.radius, undefined)
+    check('and still clips to the intersection', round(nested.ops[0].clip!), {
+      x: 0,
+      y: 0,
+      w: 60,
+      h: 60,
+    })
+  }
+
+  /* Hover, driven through the real mount loop: the signal is the caller's, so
+     it survives the rebuild that reading it causes. */
+  {
+    let move: (x: number, y: number, id: number, type?: string) => void = () => {}
+    const backend = {
+      el: {},
+      resize: () => {},
+      draw: () => {},
+      onPointerDown: () => {},
+      onPointerMove: (cb: typeof move) => {
+        move = cb
+      },
+      onPointerUp: () => {},
+      capturePointer: () => {},
+      releasePointer: () => {},
+      onWheel: () => {},
+      setCursor: () => {},
+      destroy: () => {},
+    }
+    const host = { clientWidth: 300, clientHeight: 100, replaceChildren: () => {} }
+
+    const left = signal(false)
+    const right = signal(false)
+    const mounted = mount(
+      host as unknown as HTMLElement,
+      backend as unknown as Parameters<typeof mount>[1],
+      () =>
+        HStack(
+          { spacing: 0 },
+          Rectangle().fill('#111').frame(100, null).onHover(left),
+          Rectangle().fill('#222').frame(100, null).onHover(right),
+          Rectangle().fill('#333').expand(),
+        ),
+    )
+
+    check('nothing is hovered before the pointer arrives', [left(), right()], [false, false])
+
+    move(50, 50, 1, 'mouse')
+    check('the region under the pointer is hovered', [left(), right()], [true, false])
+
+    move(150, 50, 1, 'mouse')
+    check('moving across hands it over', [left(), right()], [false, true])
+
+    move(250, 50, 1, 'mouse')
+    check('leaving both clears it', [left(), right()], [false, false])
+
+    // Fingers do not hover: nothing is drawn under one, and the mouse may be
+    // somewhere else entirely.
+    move(50, 50, 2, 'touch')
+    check('a finger hovers nothing', [left(), right()], [false, false])
+
+    mounted.unmount()
+  }
 }
 
 console.log(failures === 0 ? '\nall layout checks passed' : `\n${failures} check(s) failed`)

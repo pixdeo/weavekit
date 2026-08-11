@@ -1,5 +1,7 @@
 /** Geometry, drawing and environment primitives shared by the whole toolkit. */
 
+import type { Signal } from './signal'
+
 export interface Size {
   w: number
   h: number
@@ -33,6 +35,27 @@ export interface Font {
   size: number
   weight: number
   family: string
+  /**
+   * Extra space between characters, in pixels. Part of the font rather than of
+   * the text op because it changes how wide a string *measures*, and layout and
+   * drawing have to agree about that or the two disagree by a few pixels per
+   * word. Absent means none.
+   */
+  spacing?: number
+}
+
+/**
+ * A drop shadow under a shape.
+ *
+ * No spread: the canvas has no such parameter, and a spread is a bigger shape,
+ * which the caller can ask for by inflating the rect. Shadows fall under the
+ * fill; a shape that only strokes casts from its stroke instead.
+ */
+export interface Shadow {
+  color: string
+  blur: number
+  dx: number
+  dy: number
 }
 
 export type Align = 'leading' | 'center' | 'trailing'
@@ -53,6 +76,7 @@ export type DrawShape =
       fill?: string
       stroke?: string
       lineWidth?: number
+      shadow?: Shadow
     }
   | {
       t: 'ellipse'
@@ -61,6 +85,7 @@ export type DrawShape =
       fill?: string
       stroke?: string
       lineWidth?: number
+      shadow?: Shadow
     }
   | {
       t: 'text'
@@ -72,12 +97,17 @@ export type DrawShape =
       lineHeight: number
     }
 
+/** A clipping window. `radius` rounds its corners; 0 or absent is square. */
+export interface Clip extends Rect {
+  radius?: number
+}
+
 /**
  * `clip` is stamped on at emit time by the context, already intersected with
  * any enclosing clips. Backends apply it per op, so they need no clip stack
  * and a cached subtree can be replayed as-is.
  */
-export type DrawOp = DrawShape & { clip?: Rect }
+export type DrawOp = DrawShape & { clip?: Clip }
 
 export type PointerType = 'mouse' | 'touch' | 'pen'
 
@@ -191,6 +221,11 @@ export interface Hit {
   key?: (k: Key) => void
   /** CSS cursor shown while the pointer is inside this rect. */
   cursor?: string
+  /**
+   * Set true while the pointer rests on this rect and nothing is drawn over
+   * it, false when it leaves. Only the topmost region is hovered.
+   */
+  hover?: Signal<boolean>
   clip?: Rect
 }
 

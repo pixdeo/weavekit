@@ -1,5 +1,5 @@
 import type { ComponentCache } from './component'
-import type { DrawOp, DrawShape, Env, Hit, Rect, ScrollRegion } from './types'
+import type { Clip, DrawOp, DrawShape, Env, Hit, Rect, ScrollRegion } from './types'
 import { intersect } from './types'
 
 export const defaultEnv = (): Env => ({
@@ -21,7 +21,7 @@ export class Ctx {
   scrolls: ScrollRegion[] = []
   env: Env = defaultEnv()
   /** Current clip, already intersected with every enclosing one. */
-  clip: Rect | null = null
+  clip: Clip | null = null
 
   /**
    * Tokens claimed by DOM-backed views during this pass. A DOM element lined
@@ -58,9 +58,20 @@ export class Ctx {
     }
   }
 
-  withClip<T>(rect: Rect, fn: () => T): T {
+  /**
+   * `radius` rounds the window's corners.
+   *
+   * Two rounded windows do not intersect into a third one — the shape that
+   * comes out is not a rounded rectangle — so a nested clip that actually cuts
+   * into its parent gives up its rounding and stays square. The common case,
+   * one rounded window with nothing tighter around it, keeps it.
+   */
+  withClip<T>(rect: Rect, fn: () => T, radius = 0): T {
     const prev = this.clip
-    this.clip = prev ? intersect(prev, rect) : rect
+    const next: Clip = prev ? intersect(prev, rect) : { ...rect }
+    const whole = next.x === rect.x && next.y === rect.y && next.w === rect.w && next.h === rect.h
+    if (radius > 0 && whole) next.radius = radius
+    this.clip = next
     try {
       return fn()
     } finally {

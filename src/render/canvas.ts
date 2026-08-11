@@ -1,7 +1,7 @@
 import type { Backend, PointerCallback } from './backend'
-import type { DrawOp } from '../core/types'
+import type { DrawOp, Shadow } from '../core/types'
 import { pointerTypeOf } from '../core/types'
-import { fontCss } from '../core/text-measure'
+import { applySpacing, fontCss } from '../core/text-measure'
 
 export function createCanvasBackend(): Backend {
   const canvas = document.createElement('canvas')
@@ -38,12 +38,24 @@ export function createCanvasBackend(): Backend {
     draw(ops: DrawOp[]) {
       c.clearRect(0, 0, width, height)
 
+      /** Arms the context's own shadow, or disarms it. */
+      const shade = (s: Shadow | undefined): void => {
+        c.shadowColor = s ? s.color : 'transparent'
+        c.shadowBlur = s ? s.blur : 0
+        c.shadowOffsetX = s ? s.dx : 0
+        c.shadowOffsetY = s ? s.dy : 0
+      }
+
       for (const op of ops) {
         if (op.clip) {
           if (op.clip.w <= 0 || op.clip.h <= 0) continue
           c.save()
           c.beginPath()
-          c.rect(op.clip.x, op.clip.y, op.clip.w, op.clip.h)
+          if (op.clip.radius) {
+            c.roundRect(op.clip.x, op.clip.y, op.clip.w, op.clip.h, op.clip.radius)
+          } else {
+            c.rect(op.clip.x, op.clip.y, op.clip.w, op.clip.h)
+          }
           c.clip()
         }
 
@@ -53,15 +65,21 @@ export function createCanvasBackend(): Backend {
           c.beginPath()
           if (op.radius > 0) c.roundRect(op.rect.x, op.rect.y, op.rect.w, op.rect.h, op.radius)
           else c.rect(op.rect.x, op.rect.y, op.rect.w, op.rect.h)
+          shade(op.shadow)
           if (op.fill) {
             c.fillStyle = op.fill
             c.fill()
           }
+          // The shadow falls once, under the fill. Left on for the stroke it
+          // would cast a second one from the outline, which is not what a
+          // shadow under a shape looks like.
+          if (op.fill) shade(undefined)
           if (op.stroke) {
             c.strokeStyle = op.stroke
             c.lineWidth = op.lineWidth ?? 1
             c.stroke()
           }
+          shade(undefined)
         } else if (op.t === 'ellipse') {
           c.beginPath()
           c.ellipse(
@@ -73,17 +91,21 @@ export function createCanvasBackend(): Backend {
             0,
             Math.PI * 2,
           )
+          shade(op.shadow)
           if (op.fill) {
             c.fillStyle = op.fill
             c.fill()
           }
+          if (op.fill) shade(undefined)
           if (op.stroke) {
             c.strokeStyle = op.stroke
             c.lineWidth = op.lineWidth ?? 1
             c.stroke()
           }
+          shade(undefined)
         } else {
           c.font = fontCss(op.font)
+          applySpacing(c, op.font)
           c.fillStyle = op.color
           c.textBaseline = 'alphabetic'
           const step = op.font.size * op.lineHeight

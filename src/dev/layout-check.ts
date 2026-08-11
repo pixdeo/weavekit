@@ -524,6 +524,90 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   check('a non-view result is reported', notAView.ok, false)
 }
 
+/* 12b. The spreadsheet model: the view reads, the actions write. Tap, type,
+       Enter, Backspace — each flows through the model into a rebuilt frame,
+       so the live sum and the selection highlight follow. */
+{
+  const { examples } = await import('../examples')
+  const { compileSource } = await import('../gallery/compile')
+  const { mount } = await import('../core/mount')
+
+  const ex = examples.find((e) => e.id === 'spreadsheet')!
+  const result = compileSource(ex.code)
+  if (result.ok) {
+    let ops: InstanceType<typeof Ctx>['ops'] = []
+    let down: (x: number, y: number, id: number) => void = () => {}
+    const backend = {
+      el: {},
+      resize: () => {},
+      draw: (o: InstanceType<typeof Ctx>['ops']) => {
+        ops = o
+      },
+      onPointerDown: (cb: typeof down) => {
+        down = cb
+      },
+      onPointerMove: () => {},
+      onPointerUp: () => {},
+      capturePointer: () => {},
+      releasePointer: () => {},
+      onWheel: () => {},
+      setCursor: () => {},
+      destroy: () => {},
+    }
+    const host = { clientWidth: 600, clientHeight: 560, replaceChildren: () => {} }
+    mount(
+      host as unknown as HTMLElement,
+      backend as unknown as Parameters<typeof mount>[1],
+      () => result.view,
+    )
+
+    const press = (k: string): void =>
+      keydown({
+        key: k,
+        code: '',
+        ctrlKey: false,
+        metaKey: false,
+        altKey: false,
+        shiftKey: false,
+        repeat: false,
+        isComposing: false,
+        target: null,
+      })
+
+    const sum = (): string =>
+      ops.filter((o) => o.t === 'text')
+        .map((o) => o.lines[0])
+        .find((t) => t.startsWith('=SUM')) ?? 'none'
+
+    const hl = (): [number, number] => {
+      const r = ops.find((o) => o.t === 'rect' && o.fill === '#1e3a5f')
+      return r ? [Math.round(r.rect.x), Math.round(r.rect.y)] : [-1, -1]
+    }
+
+    // Seeds B2=3, B3=7, B4=5 -> =SUM(B2:B4) → 15
+    check('spreadsheet seeds sum to 15', sum(), '=SUM(B2:B4) → 15')
+
+    // Tap B2 (x = 40 + 64 + 32, y = formula + 24 + 26 + 13) and type "4".
+    down(136, 94, 1)
+    check('tapping a cell moves the highlight', hl(), [104, 80])
+    press('4')
+    check('typing appends to the selected cell', sum(), '=SUM(B2:B4) → 46')
+
+    // Enter moves the selection to B3; typing "2" gives "72" -> 111.
+    press('Enter')
+    check('Enter moves the highlight down a row', hl(), [104, 106])
+    press('2')
+    check('Enter moves down and typing follows', sum(), '=SUM(B2:B4) → 111')
+
+    // Backspace clears the selected cell: 34 + 5 = 39.
+    press('Backspace')
+    check('backspace clears the selected cell', sum(), '=SUM(B2:B4) → 39')
+
+    const highlighted = ops.filter((o) => o.t === 'rect' && o.fill === '#1e3a5f').length
+    check('exactly one cell is highlighted', highlighted, 1)
+  }
+}
+
 /* 13. Pointer capture: a drag keeps the pointer after it leaves the view, and
        keeps the handler it started with even as the tree rebuilds under it. */
 {

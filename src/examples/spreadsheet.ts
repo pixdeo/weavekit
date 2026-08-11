@@ -11,30 +11,44 @@ export const spreadsheet: Example = {
     'under them. Tap a cell to select it, type to enter, Enter moves down, ' +
     'Backspace clears. The formula bar sums a column live.',
 
-  code: `const tick = signal(0)
+  code: `// --- model: data + view state ---
+// cells is the sparse grid; the signals drive the
+// view and change through actions, never by hand.
+const cells = new Map()
+const version = signal(0)
 const ox = signal(0)
 const oy = signal(0)
+const selR = signal(0)
+const selC = signal(1)
 const cw = 64
 const ch = 26
 const rh = 40
 const hh = 24
 const ROWS = 500
 const COLS = 500
-let selR = 0
-let selC = 1
 let vw = 600
 let vh = 520
-const cells = new Map()
-cells.set('1,1', '3')
-cells.set('2,1', '7')
-cells.set('3,1', '5')
 
-const bump = () => tick.set(n => n + 1)
-const keyOf = (r, c) => \`\${r},\${c}\`
-const val = (r, c) => cells.get(keyOf(r, c)) || ''
-const sumB = () =>
-  [1, 2, 3].reduce((s, r) =>
-    s + (parseFloat(cells.get(\`\${r},1\`)) || 0), 0)
+// --- actions: the only place the model changes ---
+const cellKey = (r, c) => \`\${r},\${c}\`
+const get = (r, c) => cells.get(cellKey(r, c)) || ''
+const bump = () => version.set(n => n + 1)
+const set = (r, c, v) => {
+  cells.set(cellKey(r, c), v)
+  bump()
+}
+const clear = (r, c) => {
+  cells.delete(cellKey(r, c))
+  bump()
+}
+const select = (r, c) => {
+  selR.set(clamp(r, 0, ROWS - 1))
+  selC.set(clamp(c, 0, COLS - 1))
+  ensureVisible()
+}
+set(1, 1, '3')
+set(2, 1, '7')
+set(3, 1, '5')
 
 const colName = n => {
   let s = ''
@@ -49,8 +63,8 @@ const colName = n => {
 
 // Keep the selected cell in view after it moves.
 const ensureVisible = () => {
-  const x = rh + selC * cw
-  const y = hh + selR * ch
+  const x = rh + selC() * cw
+  const y = hh + selR() * ch
   const loX = ox()
   if (x < loX) ox.set(x)
   else if (x + cw > loX + vw)
@@ -61,28 +75,31 @@ const ensureVisible = () => {
     oy.set(y + ch - vh)
 }
 
+// Input only calls actions — the view never writes.
 const onKey = k => {
   if (k.isComposing || k.ctrlKey || k.metaKey
       || k.altKey) return
-  if (k.key === 'Enter')
-    selR = Math.min(selR + 1, ROWS - 1)
+  if (k.key === 'Enter') select(selR() + 1, selC())
   else if (k.key === 'Backspace')
-    cells.set(keyOf(selR, selC), '')
+    clear(selR(), selC())
   else if (k.key.length === 1) {
-    const key = keyOf(selR, selC)
-    cells.set(key, val(selR, selC) + k.key)
-  } else return
-  ensureVisible()
-  bump()
+    const r = selR()
+    const c = selC()
+    set(r, c, get(r, c) + k.key)
+  }
 }
+
+const sumB = () =>
+  [1, 2, 3].reduce((s, r) =>
+    s + (parseFloat(get(r, 1)) || 0), 0)
 
 const formula = () =>
   HStack(
     { spacing: 10, align: 'center' },
-    Text(() => \`=\${colName(selC)}\${selR + 1}\`)
+    Text(() => \`=\${colName(selC())}\${selR() + 1}\`)
       .font({ size: 12, weight: 600 })
       .foreground('#22c55e'),
-    Text(() => val(selR, selC) || '—')
+    Text(() => get(selR(), selC()) || '—')
       .font({ size: 12 })
       .foreground('#e4e4e7'),
     Spacer(),
@@ -93,12 +110,13 @@ const formula = () =>
     .padding({ t: 7, b: 7, l: 12, r: 12 })
     .background(Rectangle().fill('#16161a'))
 
+// --- view: reads the model, never writes it ---
 const cell = (r, c) => {
-  const on = selR === r && selC === c
+  const on = selR() === r && selC() === c
   const inner = ZStack(
     Rectangle().fill(on ? '#1e3a5f' : '#0d0d10')
       .stroke(on ? '#60a5fa' : '#232327', 1),
-    Text(() => val(r, c))
+    Text(() => get(r, c))
       .font({ size: 12 })
       .foreground('#e4e4e7')
       .padding({ l: 6 })
@@ -107,7 +125,7 @@ const cell = (r, c) => {
   // The tap is inside the HStack: a ZStack would
   // hand an outer handler the whole sheet rect.
   return HStack({ spacing: 0, align: 'leading' },
-    inner.onTap(() => { selR = r; selC = c; bump() }))
+    inner.onTap(() => select(r, c)))
       .offset(rh + c * cw, hh + r * ch)
 }
 
@@ -192,7 +210,7 @@ const cellContent = () => {
 }
 
 return component('sheet', () => {
-  tick()
+  version()
   return VStack({ spacing: 0 },
     formula(),
     ZStack(
@@ -206,7 +224,7 @@ return component('sheet', () => {
         if (r.w !== vw || r.h !== vh) {
           vw = r.w
           vh = r.h
-          tick.set(n => n + 1)
+          version.set(n => n + 1)
         }
       }),
   ).onKey(onKey)

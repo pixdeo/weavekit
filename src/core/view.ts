@@ -1,5 +1,6 @@
 import type { Ctx } from './ctx'
 import type { Drag, DragHandlers, Font, Insets, Key, Proposal, Rect, Size } from './types'
+import type { Signal } from './signal'
 import { concrete, inset, insets, shrink } from './types'
 
 /**
@@ -112,9 +113,27 @@ export abstract class View {
   /**
    * Confines everything this view draws — and everything it responds to — to
    * its own rect. Nested clips intersect.
+   *
+   * `radius` rounds the window, so a card can cut its own content to its
+   * corners. Hit testing stays square: a clip is a drawing window, and a
+   * pointer a pixel inside a rounded corner is not worth a second geometry.
    */
-  clip(): View {
-    return new Clip(this)
+  clip(radius = 0): View {
+    return new Clip(this, radius)
+  }
+
+  /**
+   * Tracks whether the pointer is over this view, into a signal the caller
+   * owns.
+   *
+   * A signal rather than a callback because a view has no identity across
+   * frames — the tree is rebuilt every one — and the signal is the one object
+   * that survives, exactly as a `ScrollView`'s offset does. Only the topmost
+   * view under the pointer is hovered, so overlapping regions do not both
+   * report true.
+   */
+  onHover(state: Signal<boolean>): View {
+    return new HoverMod(this, state)
   }
 
   /**
@@ -359,7 +378,10 @@ class KeyMod extends View {
 }
 
 class Clip extends View {
-  constructor(private child: View) {
+  constructor(
+    private child: View,
+    private radius: number,
+  ) {
     super()
   }
 
@@ -368,7 +390,27 @@ class Clip extends View {
   }
 
   place(rect: Rect, ctx: Ctx): void {
-    ctx.withClip(rect, () => this.child.place(rect, ctx))
+    ctx.withClip(rect, () => this.child.place(rect, ctx), this.radius)
+  }
+}
+
+class HoverMod extends View {
+  constructor(
+    private child: View,
+    private state: Signal<boolean>,
+  ) {
+    super()
+  }
+
+  measure(p: Proposal, ctx: Ctx): Size {
+    return this.child.measure(p, ctx)
+  }
+
+  place(rect: Rect, ctx: Ctx): void {
+    // Before the child, like a tap: a nested hover region lands later in the
+    // list and wins the back-to-front scan.
+    ctx.addHit({ rect, hover: this.state })
+    this.child.place(rect, ctx)
   }
 }
 

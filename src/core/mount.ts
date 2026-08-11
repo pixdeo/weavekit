@@ -2,7 +2,7 @@ import { Ctx } from './ctx'
 import type { View } from './view'
 import type { Drag, DragHandlers, Hit, PointerType, ScrollRegion } from './types'
 import { hitTestable, pointerTypeOf, toKey } from './types'
-import { subscribe } from './signal'
+import { subscribe, type Signal } from './signal'
 import { advanceAnimations } from './animation'
 import { ComponentCache, type CacheStats } from './component'
 import type { Backend } from '../render/backend'
@@ -92,6 +92,7 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     backend.draw(ctx.ops)
     // The layout may have moved under a stationary pointer.
     refreshCursor()
+    refreshHover()
 
     // An animation that ticked without changing its value writes nothing, so
     // it notifies nobody and would strand itself one frame short. The driver's
@@ -168,6 +169,37 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     return null
   }
 
+  /**
+   * The hover region the pointer is currently on, if any.
+   *
+   * Held as the caller's own signal rather than as a `Hit`: hits are rebuilt
+   * every frame and have no identity across them, while the signal is the same
+   * object for as long as the view exists — the same bargain a `ScrollView`'s
+   * offset makes.
+   */
+  let hoverTarget: Signal<boolean> | null = null
+
+  const setHover = (next: Signal<boolean> | null): void => {
+    if (next === hoverTarget) return
+    hoverTarget?.set(false)
+    hoverTarget = next
+    next?.set(true)
+  }
+
+  /**
+   * Fingers do not hover, so a touch leaves this alone and `pointer` stays null
+   * until a mouse arrives. Re-run after every frame as well as on every move:
+   * the layout can slide out from under a stationary pointer.
+   */
+  const refreshHover = (): void => {
+    if (!pointer) {
+      setHover(null)
+      return
+    }
+    const hit = hitTest(pointer.x, pointer.y, (h) => h.hover != null)
+    setHover(hit?.hover ?? null)
+  }
+
   const refreshCursor = (): void => {
     const owner = cursorOwner()
     if (owner) backend.setCursor(owner.hit.cursor ?? 'default')
@@ -241,6 +273,7 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     }
 
     refreshCursor()
+    refreshHover()
   })
 
   backend.onPointerUp((x, y, id, rawType, t = 0) => {
@@ -256,6 +289,7 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     backend.releasePointer(id)
     g.hit.drag?.onEnd?.(drag)
     refreshCursor()
+    refreshHover()
   })
 
   backend.onWheel((x, y, dx, dy) => {

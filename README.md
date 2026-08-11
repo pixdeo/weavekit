@@ -143,10 +143,12 @@ still reach the canvas, and re-enable it on the elements that need it.
 
 ## Examples gallery
 
-`npm run dev` opens a gallery: a sidebar of examples, each showing its source
-next to the live result. It starts on a hello-world intro and works up through
-stacks, the Buttons and Text components, modifier order, flexibility and
-interaction, and ends on
+The gallery runs live at
+[`pixdeo.github.io/weavekit`](https://pixdeo.github.io/weavekit/), and `npm run
+dev` opens the same thing locally: a sidebar of examples, each showing its
+source next to the live result. It starts on a hello-world intro and works up
+through stacks, the Buttons and Text components, modifier order, flexibility
+and interaction, and ends on
 [embedding the toolkit in a page](#use-it-in-your-own-page).
 
 **The code is editable.** Type in the left panel and the canvas on the right

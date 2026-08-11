@@ -92,7 +92,7 @@ const flushFrame = (): void => {
 const { hitTestable } = await import('../core/types')
 const { Ctx } = await import('../core/ctx')
 const { Text } = await import('../views/text')
-const { VStack, HStack } = await import('../views/stack')
+const { VStack, HStack, ZStack } = await import('../views/stack')
 const { Spacer } = await import('../views/spacer')
 const { Rectangle, RoundedRect } = await import('../views/shape')
 
@@ -759,6 +759,28 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   check('keys aimed at a textarea are not routed', log[log.length - 1] !== 't:q', true)
 
   textareaMount.unmount()
+}
+
+/* 13c. A handler on a ZStack child with .offset() keeps the child's rect:
+       the ZStack would otherwise hand it the whole stack, and the last
+       child would swallow every tap. */
+{
+  const ctx = new Ctx()
+  const v = ZStack(
+    Rectangle().fill('#111').frame(200, 100),
+    HStack({ spacing: 0, align: 'leading' },
+      Rectangle().fill('#222').frame(30, 20).onTap(() => {}),
+    ).offset(40, 50),
+    HStack({ spacing: 0, align: 'leading' },
+      Rectangle().fill('#333').frame(60, 15).onTap(() => {}),
+    ).offset(120, 10),
+  )
+  v.measure({ w: 200, h: 100 }, ctx)
+  v.place({ x: 0, y: 0, w: 200, h: 100 }, ctx)
+  const taps = ctx.hits.filter((h) => h.handler)
+  check('both offset taps register', taps.length, 2)
+  check('an offset tap keeps its own rect', taps[0].rect, { x: 40, y: 50, w: 30, h: 20 })
+  check('the next offset tap lands too', taps[1].rect, { x: 120, y: 10, w: 60, h: 15 })
 }
 
 /* 14. A scroll view's bar is a real thumb: dragging it scrolls the content. */

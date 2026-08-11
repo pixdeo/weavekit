@@ -41,6 +41,12 @@ export interface Backend {
   releasePointer(id: number): void
   /** Return true when the delta was consumed, so the page does not scroll. */
   onWheel(cb: (x: number, y: number, dx: number, dy: number) => boolean): void
+  /**
+   * Fires when the pointer leaves the element, so the mount loop can drop the
+   * hover it was tracking. Optional: a backend without it leaves `onHover`
+   * states stuck on when the mouse exits — correct drawing, wrong state.
+   */
+  onPointerLeave?(cb: () => void): void
   setCursor(cursor: string): void
   destroy(): void
 }

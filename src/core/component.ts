@@ -1,6 +1,6 @@
 import { envKey, type Ctx } from './ctx'
 import { View } from './view'
-import type { DrawOp, Env, Hit, Proposal, Rect, ScrollRegion, Size } from './types'
+import type { Clip, DrawOp, Env, Hit, Proposal, Rect, ScrollRegion, Size } from './types'
 import { trackInto, versionOf, type SignalId } from './signal'
 
 /**
@@ -66,10 +66,12 @@ const propKey = (p: Proposal, e: Env): string => `${p.w}:${p.h}:${envKey(e)}`
  * a subtree that moves into a viewport paints straight through its walls, and
  * one that leaves a viewport stays cropped by a window that is no longer there.
  * Hits carry a clip too, so the same subtree also stays clickable outside it.
+ * The radius is part of the clip: a rounded window that animates its corners
+ * must not replay ops cut to the old one.
  */
-const rectKey = (r: Rect, e: Env, clip: Rect | null): string =>
+const rectKey = (r: Rect, e: Env, clip: Clip | null): string =>
   `${r.x}:${r.y}:${r.w}:${r.h}:` +
-  `${clip ? `${clip.x},${clip.y},${clip.w},${clip.h}` : '-'}:${envKey(e)}`
+  `${clip ? `${clip.x},${clip.y},${clip.w},${clip.h},r${clip.radius ?? 0}` : '-'}:${envKey(e)}`
 
 const emptyStats = (): CacheStats => ({
   built: 0,

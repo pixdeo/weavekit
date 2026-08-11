@@ -111,6 +111,10 @@ export function createDomBackend(outline = false): Backend {
       if (root.hasPointerCapture(id)) root.releasePointerCapture(id)
     },
 
+    onPointerLeave(cb) {
+      root.addEventListener('pointerleave', cb)
+    },
+
     onWheel(cb) {
       root.addEventListener(
         'wheel',

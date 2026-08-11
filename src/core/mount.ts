@@ -302,6 +302,13 @@ export function mount(host: HTMLElement, backend: Backend, build: () => View): M
     return false
   })
 
+  // The mouse leaving the element drops the hover it was tracking; without
+  // this a backend reports no further moves and the last region stays lit.
+  backend.onPointerLeave?.(() => {
+    pointer = null
+    refreshHover()
+  })
+
   const onResize = (): void => invalidate()
   window.addEventListener('resize', onResize)
 

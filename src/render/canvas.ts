@@ -172,6 +172,10 @@ export function createCanvasBackend(): Backend {
       )
     },
 
+    onPointerLeave(cb) {
+      canvas.addEventListener('pointerleave', cb)
+    },
+
     setCursor(cursor) {
       if (canvas.style.cursor !== cursor) canvas.style.cursor = cursor
     },

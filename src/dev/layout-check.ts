@@ -2332,6 +2332,31 @@ VStack {
     pass(stable, true)
     pass(stable, true)
     check('an unchanged clip still replays from cache', stable.stats.reusedPlace, 1)
+
+    // The radius is part of the clip: a rounded window whose corners change
+    // must rebuild, not replay ops cut to the old shape.
+    {
+      const radii = (r1: number | undefined, r2: number | undefined) => {
+        const cache = new ComponentCache()
+        cache.beginFrame()
+        const inner = component('c', () => Rectangle().fill('#f00').frame(100, 100))
+        const one = (radius: number | undefined) => {
+          const ctx = new Ctx(cache)
+          const root = inner.frame(100, 100).clip(radius)
+          root.measure({ w: 100, h: 100 }, ctx)
+          root.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+          return ctx.ops[0]
+        }
+        one(r1)
+        cache.sweep()
+        return { op: one(r2), reused: cache.stats.reusedPlace }
+      }
+      const changed = radii(12, 24)
+      check('a clip radius change drops the cached ops', changed.op.clip?.radius, 24)
+      check('and does not replay the old corners', changed.reused, 0)
+      const same = radii(12, 12)
+      check('an unchanged radius still replays', same.reused, 1)
+    }
   }
 
   /* Measuring is memoised per pass, so nested stacks re-asking the same
@@ -2463,6 +2488,7 @@ VStack {
      it survives the rebuild that reading it causes. */
   {
     let move: (x: number, y: number, id: number, type?: string) => void = () => {}
+    let leave: () => void = () => {}
     const backend = {
       el: {},
       resize: () => {},
@@ -2475,6 +2501,9 @@ VStack {
       capturePointer: () => {},
       releasePointer: () => {},
       onWheel: () => {},
+      onPointerLeave: (cb: () => void) => {
+        leave = cb
+      },
       setCursor: () => {},
       destroy: () => {},
     }
@@ -2502,11 +2531,13 @@ VStack {
     move(150, 50, 1, 'mouse')
     check('moving across hands it over', [left(), right()], [false, true])
 
-    move(250, 50, 1, 'mouse')
-    check('leaving both clears it', [left(), right()], [false, false])
+    // The mouse leaving the element must drop the hover — without the leave
+    // callback the last position is frozen and the region stays lit.
+    leave()
+    check('the pointer leaving clears the hover', [left(), right()], [false, false])
 
-    // Fingers do not hover: nothing is drawn under one, and the mouse may be
-    // somewhere else entirely.
+    // And a finger still hovers nothing: nothing is drawn under one, and the
+    // mouse may be somewhere else entirely.
     move(50, 50, 2, 'touch')
     check('a finger hovers nothing', [left(), right()], [false, false])
 

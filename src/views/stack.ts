@@ -67,16 +67,16 @@ class Stack extends View {
     const available = this.mainOf(p)
 
     if (available == null || !isFinite(available)) {
-      return this.children.map((c) => c.measure(this.prop(null, cross), ctx))
+      return this.children.map((c) => ctx.measure(c, this.prop(null, cross)))
     }
 
     const room = Math.max(0, available - this.spacing * (n - 1))
-    const ideal = this.children.map((c) => c.measure(this.prop(null, cross), ctx))
+    const ideal = this.children.map((c) => ctx.measure(c, this.prop(null, cross)))
     const idealTotal = ideal.reduce((sum, s) => sum + this.main(s), 0)
 
     // `room` doubles as the "as much as you want" probe: an actual Infinity
     // would leak into the sums below.
-    const upper = this.children.map((c) => this.main(c.measure(this.prop(room, cross), ctx)))
+    const upper = this.children.map((c) => this.main(ctx.measure(c, this.prop(room, cross))))
 
     if (idealTotal <= room) {
       const sizes = ideal.slice()
@@ -89,7 +89,7 @@ class Stack extends View {
       let left = greedy.length
       for (const { i } of greedy) {
         const base = this.main(ideal[i])
-        const size = this.children[i].measure(this.prop(base + surplus / left, cross), ctx)
+        const size = ctx.measure(this.children[i], this.prop(base + surplus / left, cross))
         sizes[i] = size
         surplus = Math.max(0, surplus - (this.main(size) - base))
         left--
@@ -97,7 +97,7 @@ class Stack extends View {
       return sizes
     }
 
-    const lower = this.children.map((c) => this.main(c.measure(this.prop(0, cross), ctx)))
+    const lower = this.children.map((c) => this.main(ctx.measure(c, this.prop(0, cross))))
     const order = this.children
       .map((_, i) => ({ i, flex: upper[i] - lower[i] }))
       .sort((a, b) => a.flex - b.flex)
@@ -106,7 +106,7 @@ class Stack extends View {
     let remaining = room
     let left = n
     for (const { i } of order) {
-      const size = this.children[i].measure(this.prop(Math.max(0, remaining) / left, cross), ctx)
+      const size = ctx.measure(this.children[i], this.prop(Math.max(0, remaining) / left, cross))
       sizes[i] = size
       remaining -= this.main(size)
       left--

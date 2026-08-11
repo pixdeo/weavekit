@@ -17,6 +17,7 @@ export function createCanvasBackend(): Backend {
 
   let width = 0
   let height = 0
+  let lastDpr = 0
 
   const report = (cb: PointerCallback, e: PointerEvent): void => {
     const r = canvas.getBoundingClientRect()
@@ -28,8 +29,15 @@ export function createCanvasBackend(): Backend {
 
     resize(w, h) {
       const dpr = window.devicePixelRatio || 1
+      // `mount` calls this every frame. Assigning `canvas.width` resets the
+      // backing store and the whole 2D context state even when the value has
+      // not changed, so the guard is what stops a still layout from
+      // reallocating its bitmap sixty times a second. The dpr is part of it:
+      // dragging the window to another display changes it with no resize.
+      if (w === width && h === height && dpr === lastDpr) return
       width = w
       height = h
+      lastDpr = dpr
       canvas.width = Math.round(w * dpr)
       canvas.height = Math.round(h * dpr)
       c.setTransform(dpr, 0, 0, dpr, 0, 0)

@@ -7,10 +7,26 @@ export {}
 
 const stub = globalThis as unknown as { document?: unknown }
 stub.document = {
-  createElement: () => ({
-    getContext: () => {
-      let size = 14
-      return {
+  /**
+   * Enough of an element for both users of `createElement` here: the text
+   * measurer, which only wants a 2D context, and the canvas backend, which
+   * wants a style bag and a bitmap it can size.
+   */
+  createElement: () => {
+    let size = 14
+    let w = 0
+    let h = 0
+    const el = {
+      style: {} as Record<string, string>,
+      /** Assignments to `width`. A bitmap reallocation is what this counts. */
+      writes: 0,
+      addEventListener: () => {},
+      remove: () => {},
+      setPointerCapture: () => {},
+      hasPointerCapture: () => false,
+      releasePointerCapture: () => {},
+      getBoundingClientRect: () => ({ left: 0, top: 0 }),
+      getContext: () => ({
         set font(v: string) {
           size = parseFloat(/(\d+(?:\.\d+)?)px/.exec(v)?.[1] ?? '14')
         },
@@ -24,9 +40,20 @@ stub.document = {
           const extra = parseFloat(this.letterSpacing) || 0
           return { width: s.length * size * 0.5 + extra * s.length }
         },
-      }
-    },
-  }),
+        setTransform: () => {},
+        clearRect: () => {},
+      }),
+    }
+    Object.defineProperty(el, 'width', {
+      get: () => w,
+      set: (v: number) => {
+        w = v
+        el.writes++
+      },
+    })
+    Object.defineProperty(el, 'height', { get: () => h, set: (v: number) => (h = v) })
+    return el
+  },
 }
 
 const win = globalThis as unknown as {
@@ -2260,7 +2287,107 @@ VStack {
   check('blocks survive a round trip back to JavaScript', compileView(roundTrip.code).ok, true)
 }
 
-/* 24. Four primitives the draw ops did not carry: a shadow, letter spacing, a
+/* 24. Four bugs that the checks above did not catch, and the guards that
+       keep them fixed. */
+{
+  const { ComponentCache, component } = await import('../core/component')
+  const { VStack, HStack } = await import('../views/stack')
+  const { Spacer } = await import('../views/spacer')
+  const { textWidth, textCacheSize } = await import('../core/text-measure')
+
+  /* A cached subtree carries the clip its ops were recorded under, so the
+     ambient clip has to be part of the key that decides whether to replay. */
+  {
+    // The child rect is identical either way — only the clip around it moves.
+    const pass = (cache: InstanceType<typeof ComponentCache>, clipped: boolean) => {
+      cache.beginFrame()
+      const ctx = new Ctx(cache)
+      const inner = component('c', () => Rectangle().fill('#f00').frame(200, 200))
+      const root = clipped ? inner.frame(100, 100).clip() : inner.frame(100, 100)
+      root.measure({ w: 100, h: 100 }, ctx)
+      root.place({ x: 0, y: 0, w: 100, h: 100 }, ctx)
+      cache.sweep()
+      return ctx
+    }
+
+    const losing = new ComponentCache()
+    pass(losing, true)
+    check('losing a clip drops it from the replayed ops', pass(losing, false).ops[0].clip, undefined)
+
+    const gaining = new ComponentCache()
+    pass(gaining, false)
+    // Read defensively: with the bug present there is no clip to round, and a
+    // check that throws takes the rest of the suite down with it instead of
+    // reporting one failure.
+    const gained = pass(gaining, true).ops[0].clip
+    check('gaining a clip stamps it on the replayed ops', gained ? round(gained) : null, {
+      x: 0,
+      y: 0,
+      w: 100,
+      h: 100,
+    })
+
+    // And the cache still does its job when nothing about the clip changed.
+    const stable = new ComponentCache()
+    pass(stable, true)
+    pass(stable, true)
+    check('an unchanged clip still replays from cache', stable.stats.reusedPlace, 1)
+  }
+
+  /* Measuring is memoised per pass, so nested stacks re-asking the same
+     question cost nothing. Without it this grows exponentially with depth. */
+  {
+    const measuresAtDepth = (depth: number): number => {
+      let reads = 0
+      let v = Text(() => {
+        reads++
+        return 'label'
+      })
+      for (let i = 0; i < depth; i++) {
+        v = i % 2 === 0 ? HStack({ spacing: 4 }, v, Spacer()) : VStack({ spacing: 4 }, v, Spacer())
+      }
+      const ctx = new Ctx()
+      v.measure({ w: 300, h: 200 }, ctx)
+      v.place({ x: 0, y: 0, w: 300, h: 200 }, ctx)
+      return reads
+    }
+
+    const shallow = measuresAtDepth(3)
+    const deep = measuresAtDepth(7)
+    // Four more levels of nesting used to mean 27 → 724.
+    check('a deep tree measures its leaf a linear number of times', deep < 40, true)
+    check('and only a little more often than a shallow one', deep < shallow * 4, true)
+  }
+
+  /* The measurement cache is bounded: a counter or a clock produces a fresh
+     string every frame, and every one of them used to be kept forever. */
+  {
+    const font = { size: 14, weight: 400, family: 'probe-only' }
+    const before = textCacheSize()
+    for (let i = 0; i < 30_000; i++) textWidth(`tick ${i}`, font)
+    check('the text cache stays bounded', textCacheSize() < 25_000, true)
+    check('and still measures correctly after a drop', textWidth('tick 1', font), 'tick 1'.length * 14 * 0.5)
+    check('the probe reported a real cache', before >= 0, true)
+  }
+
+  /* `mount` resizes the backend every frame. Assigning `canvas.width` resets
+     the bitmap and the whole 2D context state even when the value has not
+     changed, so a still layout used to reallocate sixty times a second. */
+  {
+    const { createCanvasBackend } = await import('../render/canvas')
+    const backend = createCanvasBackend()
+    const canvas = backend.el as unknown as { writes: number }
+
+    backend.resize(300, 200)
+    check('the first resize sizes the bitmap', canvas.writes, 1)
+    backend.resize(300, 200)
+    check('resizing to the same size does not reallocate it', canvas.writes, 1)
+    backend.resize(320, 200)
+    check('a real size change does', canvas.writes, 2)
+  }
+}
+
+/* 25. Four primitives the draw ops did not carry: a shadow, letter spacing, a
        rounded clip, and hover as something a view can be told about. */
 {
   const { mount } = await import('../core/mount')

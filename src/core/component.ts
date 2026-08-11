@@ -1,4 +1,4 @@
-import type { Ctx } from './ctx'
+import { envKey, type Ctx } from './ctx'
 import { View } from './view'
 import type { DrawOp, Env, Hit, Proposal, Rect, ScrollRegion, Size } from './types'
 import { trackInto, versionOf, type SignalId } from './signal'
@@ -55,12 +55,21 @@ export interface CacheStats {
   reusedPlace: number
 }
 
-const envKey = (e: Env): string =>
-  `${e.font.size}/${e.font.weight}/${e.font.family}/${e.foreground}/${e.opacity}`
-
 const propKey = (p: Proposal, e: Env): string => `${p.w}:${p.h}:${envKey(e)}`
 
-const rectKey = (r: Rect, e: Env): string => `${r.x}:${r.y}:${r.w}:${r.h}:${envKey(e)}`
+/**
+ * The clip belongs in the key as much as the rect does.
+ *
+ * `Ctx.emit` stamps the clip in force onto every op, so a cached subtree's ops
+ * carry the clip they were *recorded* under. Replay them where a different clip
+ * applies and the drawing is wrong in whichever direction the clip changed:
+ * a subtree that moves into a viewport paints straight through its walls, and
+ * one that leaves a viewport stays cropped by a window that is no longer there.
+ * Hits carry a clip too, so the same subtree also stays clickable outside it.
+ */
+const rectKey = (r: Rect, e: Env, clip: Rect | null): string =>
+  `${r.x}:${r.y}:${r.w}:${r.h}:` +
+  `${clip ? `${clip.x},${clip.y},${clip.w},${clip.h}` : '-'}:${envKey(e)}`
 
 const emptyStats = (): CacheStats => ({
   built: 0,
@@ -175,7 +184,7 @@ class ComponentView extends View {
       return
     }
 
-    const key = rectKey(rect, ctx.env)
+    const key = rectKey(rect, ctx.env, ctx.clip)
     if (entry.ops && entry.hits && entry.scrolls && entry.claims && entry.placeKey === key) {
       for (const op of entry.ops) ctx.ops.push(op)
       for (const hit of entry.hits) ctx.hits.push(hit)

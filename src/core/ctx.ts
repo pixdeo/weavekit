@@ -1,6 +1,11 @@
 import type { ComponentCache } from './component'
-import type { Clip, DrawOp, DrawShape, Env, Hit, Rect, ScrollRegion } from './types'
+import type { Clip, DrawOp, DrawShape, Env, Hit, Proposal, Rect, ScrollRegion, Size } from './types'
 import { intersect } from './types'
+import type { View } from './view'
+
+/** Identifies an environment for cache keys. Two equal keys measure alike. */
+export const envKey = (e: Env): string =>
+  `${e.font.size}/${e.font.weight}/${e.font.family}/${e.foreground}/${e.opacity}`
 
 export const defaultEnv = (): Env => ({
   font: { size: 14, weight: 400, family: 'ui-sans-serif, system-ui, -apple-system, sans-serif' },
@@ -47,6 +52,37 @@ export class Ctx {
   }
 
   constructor(readonly cache?: ComponentCache) {}
+
+  /**
+   * Measurements already taken during this pass.
+   *
+   * A stack asks each child for its size up to three times — ideal, the whole
+   * room, then its final share — and every one of those questions re-asks the
+   * child's own children. Nested stacks multiply: the leaf of a seven-deep tree
+   * gets measured 724 times for a single frame, and the growth is exponential
+   * in depth, so a real layout is unpayable without this.
+   *
+   * `measure` is a pure function of the view, the proposal and the inherited
+   * environment, so the repeats are all the same question. The map lives on the
+   * pass — a new `Ctx` per frame — which is exactly as long as an answer stays
+   * true.
+   */
+  private measures = new WeakMap<View, Map<string, Size>>()
+
+  /** Runs `view.measure(p)` unless this pass already asked the same question. */
+  measure(view: View, p: Proposal): Size {
+    let seen = this.measures.get(view)
+    if (!seen) {
+      seen = new Map()
+      this.measures.set(view, seen)
+    }
+    const key = `${p.w}:${p.h}:${envKey(this.env)}`
+    const hit = seen.get(key)
+    if (hit) return hit
+    const size = view.measure(p, this)
+    seen.set(key, size)
+    return size
+  }
 
   withEnv<T>(patch: Partial<Env>, fn: () => T): T {
     const prev = this.env

@@ -5,6 +5,7 @@ import { stacks } from './stacks'
 import { buttons } from './buttons'
 import { text } from './text'
 import { modifiers } from './modifiers'
+import { layering } from './layering'
 import { flexibility } from './flexibility'
 import { interaction } from './interaction'
 import { dragging } from './dragging'
@@ -25,6 +26,7 @@ export const examples: Example[] = [
   buttons,
   text,
   modifiers,
+  layering,
   flexibility,
   interaction,
   dragging,

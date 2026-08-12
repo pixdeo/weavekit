@@ -962,6 +962,62 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   check('the next offset tap lands too', taps[1].rect, { x: 120, y: 10, w: 60, h: 15 })
 }
 
+/* 13d. A fixed .frame() holds its size even when the parent hands it more room
+       than it measured — a ZStack gives every child the whole stack. Before,
+       `place` re-proposed the incoming rect, so a shape inside a small frame
+       measured itself against the stack and filled it. */
+{
+  {
+    const ctx = new Ctx()
+    const v = ZStack(
+      Rectangle().fill('#111'),
+      Rectangle().fill('#222').frame(30, 20),
+    )
+    v.measure({ w: 200, h: 100 }, ctx)
+    v.place({ x: 0, y: 0, w: 200, h: 100 }, ctx)
+    check('the flexible layer fills the stack', round(ctx.ops[0].rect), {
+      x: 0, y: 0, w: 200, h: 100,
+    })
+    check('the framed layer keeps its size, centred', round(ctx.ops[1].rect), {
+      x: 85, y: 40, w: 30, h: 20,
+    })
+  }
+
+  // ...and an offset then moves that rect, rather than a stack-sized one.
+  {
+    const ctx = new Ctx()
+    const v = ZStack(
+      Rectangle().fill('#111'),
+      Rectangle().fill('#222').frame(30, 20).offset(-10, 5),
+    )
+    v.measure({ w: 200, h: 100 }, ctx)
+    v.place({ x: 0, y: 0, w: 200, h: 100 }, ctx)
+    check('offset moves the framed layer', round(ctx.ops[1].rect), {
+      x: 75, y: 45, w: 30, h: 20,
+    })
+  }
+
+  /* Concentric panels: each padding grows the box and the background after it
+     paints the grown box, so the layers nest instead of coinciding. */
+  {
+    const ctx = new Ctx()
+    const v = Rectangle()
+      .fill('#111')
+      .frame(100, 40)
+      .padding(4)
+      .background(RoundedRect(3).fill('#222'))
+      .padding(10)
+      .background(RoundedRect(8).fill('#333'))
+    const size = v.measure({ w: null, h: null }, ctx)
+    check('padding grows the outer box', [size.w, size.h], [128, 68])
+    v.place({ x: 0, y: 0, w: size.w, h: size.h }, ctx)
+    const rects = ctx.ops.map((o) => round(o.rect))
+    check('the outer panel covers everything', rects[0], { x: 0, y: 0, w: 128, h: 68 })
+    check('the inner panel sits inside it', rects[1], { x: 10, y: 10, w: 108, h: 48 })
+    check('the content sits inside that', rects[2], { x: 14, y: 14, w: 100, h: 40 })
+  }
+}
+
 /* 14. A scroll view's bar is a real thumb: dragging it scrolls the content. */
 {
   const { ScrollView } = await import('../views/scroll')

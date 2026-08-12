@@ -1,0 +1,38 @@
+import type { Example } from './types'
+
+export const layering: Example = {
+  id: 'layering',
+  title: 'Layering',
+  blurb:
+    'A ZStack hands every child the whole stack, so a child that would otherwise fill — a ' +
+    'shape, an .expand() — needs a .frame() to keep a size of its own. Panels nest the other ' +
+    'way round: padding then background, over and over, each background painting the box the ' +
+    'padding just grew. That is how you get a frame around a frame.',
+
+  code: `HStack({ spacing: 20, align: 'center' },
+  // Concentric panels: every .padding() grows
+  // the box, every .background() paints it.
+  VStack({ spacing: 4, align: 'leading' },
+    Text('12:04').font({ size: 20 }),
+    Text('focus').font({ size: 11 })
+      .foreground('#a1a1aa'),
+  )
+    .frame(110, 54)
+    .padding(4)
+    .background(RoundedRect(4).fill('#3f3f46'))
+    .padding(14)
+    .background(
+      RoundedRect(12)
+        .fill('#18181b')
+        .stroke('#52525b', 1),
+    ),
+
+  // The dot keeps its 16px inside the stack,
+  // and is centred there — offset moves it.
+  ZStack(
+    RoundedRect(10).fill('#27272a'),
+    Circle().fill('#22c55e').frame(16, 16)
+      .offset(0, -14),
+  ).frame(120, 96),
+)`,
+}

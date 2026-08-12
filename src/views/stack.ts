@@ -169,17 +169,61 @@ export function HStack(...args: StackArgs): View {
   return new Stack('h', opts, children)
 }
 
-/** Draws children on top of each other, all filling the same rect. */
+/**
+ * Where a child that does not fill the stack sits inside it. The nine SwiftUI
+ * alignments, as fractions of the room left over on each axis: 0 pins to the
+ * start, 1 to the end.
+ */
+export type ZAlign =
+  | 'center'
+  | 'top'
+  | 'bottom'
+  | 'leading'
+  | 'trailing'
+  | 'topLeading'
+  | 'topTrailing'
+  | 'bottomLeading'
+  | 'bottomTrailing'
+
+const ANCHORS: Record<ZAlign, [number, number]> = {
+  center: [0.5, 0.5],
+  top: [0.5, 0],
+  bottom: [0.5, 1],
+  leading: [0, 0.5],
+  trailing: [1, 0.5],
+  topLeading: [0, 0],
+  topTrailing: [1, 0],
+  bottomLeading: [0, 1],
+  bottomTrailing: [1, 1],
+}
+
+export interface ZStackOpts {
+  align?: ZAlign
+}
+
+/**
+ * Draws children on top of each other. Each is proposed the stack's rect and
+ * placed at the size it answered with, aligned inside — centred by default,
+ * matching SwiftUI. A shape or an `.expand()` still fills the stack, because
+ * that is what it measures to; a fixed frame keeps its own size instead of
+ * being stretched over the whole stack.
+ */
 class ZStackView extends View {
-  constructor(private children: View[]) {
+  private align: ZAlign
+
+  constructor(
+    opts: ZStackOpts,
+    private children: View[],
+  ) {
     super()
+    this.align = opts.align ?? 'center'
   }
 
   measure(p: Proposal, ctx: Ctx): Size {
     let w = 0
     let h = 0
     for (const c of this.children) {
-      const s = c.measure(p, ctx)
+      const s = ctx.measure(c, p)
       w = Math.max(w, s.w)
       h = Math.max(h, s.h)
     }
@@ -187,13 +231,27 @@ class ZStackView extends View {
   }
 
   place(rect: Rect, ctx: Ctx): void {
+    const [ax, ay] = ANCHORS[this.align]
     for (const c of this.children) {
-      c.measure({ w: rect.w, h: rect.h }, ctx)
-      c.place(rect, ctx)
+      const s = ctx.measure(c, { w: rect.w, h: rect.h })
+      c.place(
+        {
+          x: rect.x + (rect.w - s.w) * ax,
+          y: rect.y + (rect.h - s.h) * ay,
+          w: s.w,
+          h: s.h,
+        },
+        ctx,
+      )
     }
   }
 }
 
-export function ZStack(...children: View[]): View {
-  return new ZStackView(children)
+type ZStackArgs = [ZStackOpts, ...View[]] | View[]
+
+export function ZStack(...args: ZStackArgs): View {
+  if (args.length > 0 && !(args[0] instanceof View)) {
+    return new ZStackView(args[0] as ZStackOpts, args.slice(1) as View[])
+  }
+  return new ZStackView({}, args as View[])
 }

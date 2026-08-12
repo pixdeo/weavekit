@@ -181,7 +181,10 @@ class Frame extends View {
   }
 
   place(rect: Rect, ctx: Ctx): void {
-    const inner = this.child.measure({ w: rect.w, h: rect.h }, ctx)
+    // A fixed side proposes itself, never the rect it was handed. Parents that
+    // hand out more room than they measured — ZStack gives every child the
+    // whole stack — would otherwise let a flexible child fill past the frame.
+    const inner = this.child.measure({ w: this.w ?? rect.w, h: this.h ?? rect.h }, ctx)
     // Children are centred inside a fixed frame, matching SwiftUI's default.
     this.child.place(
       {

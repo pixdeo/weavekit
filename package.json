@@ -1,6 +1,6 @@
 {
   "name": "@pixdeo/weavekit",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "A declarative, SwiftUI-shaped UI toolkit that renders to <canvas>.",
   "type": "module",
   "main": "./dist-lib/weavekit.js",

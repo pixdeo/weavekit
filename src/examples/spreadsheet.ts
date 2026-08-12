@@ -113,7 +113,9 @@ const formula = () =>
 // --- view: reads the model, never writes it ---
 const cell = (r, c) => {
   const on = selR() === r && selC() === c
-  const inner = ZStack(
+  // Every strip anchors topLeading, so the offsets
+  // below read as positions on the sheet.
+  return ZStack({ align: 'topLeading' },
     Rectangle().fill(on ? '#1e3a5f' : '#0d0d10')
       .stroke(on ? '#60a5fa' : '#232327', 1),
     Text(() => get(r, c))
@@ -121,31 +123,25 @@ const cell = (r, c) => {
       .foreground('#e4e4e7')
       .padding({ l: 6 })
       .offset(0, 5),
-  ).frame(cw, ch)
-  // The tap is inside the HStack: a ZStack would
-  // hand an outer handler the whole sheet rect.
-  return HStack({ spacing: 0, align: 'leading' },
-    inner.onTap(() => select(r, c)))
-      .offset(rh + c * cw, hh + r * ch)
+  )
+    .frame(cw, ch)
+    .onTap(() => select(r, c))
+    .offset(rh + c * cw, hh + r * ch)
 }
 
 const colHead = c =>
-  HStack({ spacing: 0, align: 'leading' },
-    Text(colName(c))
-      .font({ size: 11, weight: 700 })
-      .foreground('#71717a')
-      .frame(cw, hh)
-      .background(Rectangle().fill('#121216')),
-  )
+  Text(colName(c))
+    .font({ size: 11, weight: 700 })
+    .foreground('#71717a')
+    .frame(cw, hh)
+    .background(Rectangle().fill('#121216'))
 
 const rowHead = r =>
-  HStack({ spacing: 0, align: 'leading' },
-    Text(\`\${r + 1}\`)
-      .font({ size: 11, weight: 700 })
-      .foreground('#71717a')
-      .frame(rh, ch)
-      .background(Rectangle().fill('#121216')),
-  )
+  Text(\`\${r + 1}\`)
+    .font({ size: 11, weight: 700 })
+    .foreground('#71717a')
+    .frame(rh, ch)
+    .background(Rectangle().fill('#121216'))
 
 const firstC = () => {
   const x0 = ox() - rh
@@ -167,32 +163,26 @@ const lastR = () => {
 // Headers are pinned: a strip above/left of the scroll
 // viewport, translated by -ox/-oy to track the cells.
 const corner = () =>
-  HStack({ spacing: 0, align: 'leading' },
-    Rectangle().fill('#121216').frame(rh, hh),
-  )
+  Rectangle().fill('#121216').frame(rh, hh)
 
 const colHeaderStrip = () => {
   const heads = []
   for (let c = firstC(); c < lastC(); c++)
     heads.push(colHead(c).offset(c * cw - ox(), 0))
-  return HStack({ spacing: 0, align: 'leading' },
-    ZStack(
-      Rectangle().frame(vw - rh, hh),
-      ...heads,
-    ).clip(),
-  ).offset(rh, 0)
+  return ZStack({ align: 'topLeading' },
+    Rectangle().frame(vw - rh, hh),
+    ...heads,
+  ).clip().offset(rh, 0)
 }
 
 const rowHeaderStrip = () => {
   const heads = []
   for (let r = firstR(); r < lastR(); r++)
     heads.push(rowHead(r).offset(0, r * ch - oy()))
-  return HStack({ spacing: 0, align: 'leading' },
-    ZStack(
-      Rectangle().frame(rh, vh - hh),
-      ...heads,
-    ).clip(),
-  ).offset(0, hh)
+  return ZStack({ align: 'topLeading' },
+    Rectangle().frame(rh, vh - hh),
+    ...heads,
+  ).clip().offset(0, hh)
 }
 
 // Only the cells in view are drawn, over a fixed
@@ -202,7 +192,7 @@ const cellContent = () => {
   for (let r = firstR(); r < lastR(); r++)
     for (let c = firstC(); c < lastC(); c++)
       items.push(cell(r, c))
-  return ZStack(
+  return ZStack({ align: 'topLeading' },
     Rectangle().fill('#0d0d10')
       .frame(rh + COLS * cw, hh + ROWS * ch),
     ...items,
@@ -213,7 +203,7 @@ return component('sheet', () => {
   version()
   return VStack({ spacing: 0 },
     formula(),
-    ZStack(
+    ZStack({ align: 'topLeading' },
       ScrollView({ x: ox, y: oy }, cellContent()),
       corner(),
       colHeaderStrip(),

@@ -940,19 +940,15 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
   textareaMount.unmount()
 }
 
-/* 13c. A handler on a ZStack child with .offset() keeps the child's rect:
-       the ZStack would otherwise hand it the whole stack, and the last
-       child would swallow every tap. */
+/* 13c. A handler on a ZStack child keeps the child's rect rather than the whole
+       stack — otherwise the last child swallows every tap. Anchored topLeading,
+       an .offset() on such a child reads as a position on the stack. */
 {
   const ctx = new Ctx()
-  const v = ZStack(
+  const v = ZStack({ align: 'topLeading' },
     Rectangle().fill('#111').frame(200, 100),
-    HStack({ spacing: 0, align: 'leading' },
-      Rectangle().fill('#222').frame(30, 20).onTap(() => {}),
-    ).offset(40, 50),
-    HStack({ spacing: 0, align: 'leading' },
-      Rectangle().fill('#333').frame(60, 15).onTap(() => {}),
-    ).offset(120, 10),
+    Rectangle().fill('#222').frame(30, 20).onTap(() => {}).offset(40, 50),
+    Rectangle().fill('#333').frame(60, 15).onTap(() => {}).offset(120, 10),
   )
   v.measure({ w: 200, h: 100 }, ctx)
   v.place({ x: 0, y: 0, w: 200, h: 100 }, ctx)
@@ -1016,6 +1012,37 @@ const round = (r: { x: number; y: number; w: number; h: number }) => ({
     check('the inner panel sits inside it', rects[1], { x: 10, y: 10, w: 108, h: 48 })
     check('the content sits inside that', rects[2], { x: 14, y: 14, w: 100, h: 40 })
   }
+}
+
+/* 13e. ZStack alignment. Children are placed at the size they measured to, so
+       a filling layer still covers the stack while a framed one is anchored
+       inside it — centred unless the stack says otherwise. */
+{
+  const layers = (align?: 'topLeading' | 'bottomTrailing' | 'top' | 'trailing') => {
+    const ctx = new Ctx()
+    const badge = Rectangle().fill('#222').frame(40, 20)
+    const v = align
+      ? ZStack({ align }, Rectangle().fill('#111'), badge)
+      : ZStack(Rectangle().fill('#111'), badge)
+    const size = v.measure({ w: 200, h: 100 }, ctx)
+    v.place({ x: 0, y: 0, w: 200, h: 100 }, ctx)
+    return { size, fill: round(ctx.ops[0].rect), badge: round(ctx.ops[1].rect) }
+  }
+
+  check('the stack measures to its largest child', layers().size, { w: 200, h: 100 })
+  check('a filling layer covers the stack', layers().fill, { x: 0, y: 0, w: 200, h: 100 })
+  check('a framed layer defaults to centred', layers().badge, { x: 80, y: 40, w: 40, h: 20 })
+  check('topLeading pins to the corner', layers('topLeading').badge, {
+    x: 0, y: 0, w: 40, h: 20,
+  })
+  check('bottomTrailing pins to the far corner', layers('bottomTrailing').badge, {
+    x: 160, y: 80, w: 40, h: 20,
+  })
+  // The one-word alignments pin a single axis and centre the other.
+  check('top centres horizontally', layers('top').badge, { x: 80, y: 0, w: 40, h: 20 })
+  check('trailing centres vertically', layers('trailing').badge, {
+    x: 160, y: 40, w: 40, h: 20,
+  })
 }
 
 /* 14. A scroll view's bar is a real thumb: dragging it scrolls the content. */

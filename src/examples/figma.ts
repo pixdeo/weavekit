@@ -77,32 +77,30 @@ const toolbar = () =>
     .background(Rectangle().fill('#16161a'))
 
 const canvas = () =>
-  ZStack(
+  // topLeading anchors every frame to the canvas
+  // corner, so an offset reads as a position.
+  ZStack({ align: 'topLeading' },
     Rectangle().fill('#0d0d10'),
     ...frames.map((f, i) =>
-      // Tap/drag inside: a ZStack hands an outer
-      // handler the whole canvas as its hit rect.
-      HStack({ spacing: 0, align: 'leading' },
-        Text(f.text)
-          .font({ size: 14 })
-          .foreground('#e4e4e7')
-          .padding({ t: 5, b: 5, l: 8, r: 8 })
-          .background(RoundedRect(4).fill(i === sel
-            ? '#16325f' : 'transparent'))
-          .onTap(() => select(i))
-          .onDrag({
-            onStart: () => {
-              fx = f.x
-              fy = f.y
-              select(i)
-            },
-            onMove: d => {
-              f.x = clamp(fx + d.tx, 0, 300)
-              f.y = clamp(fy + d.ty, 0, 190)
-              bump()
-            },
-          }),
-      )
+      Text(f.text)
+        .font({ size: 14 })
+        .foreground('#e4e4e7')
+        .padding({ t: 5, b: 5, l: 8, r: 8 })
+        .background(RoundedRect(4).fill(i === sel
+          ? '#16325f' : 'transparent'))
+        .onTap(() => select(i))
+        .onDrag({
+          onStart: () => {
+            fx = f.x
+            fy = f.y
+            select(i)
+          },
+          onMove: d => {
+            f.x = clamp(fx + d.tx, 0, 300)
+            f.y = clamp(fy + d.ty, 0, 190)
+            bump()
+          },
+        })
         .offset(f.x, f.y),
     ),
   ).frame(null, 250)

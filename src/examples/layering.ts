@@ -4,9 +4,11 @@ export const layering: Example = {
   id: 'layering',
   title: 'Layering',
   blurb:
-    'A ZStack hands every child the whole stack, so a child that would otherwise fill — a ' +
-    'shape, an .expand() — needs a .frame() to keep a size of its own. Panels nest the other ' +
-    'way round: padding then background, over and over, each background painting the box the ' +
+    'A ZStack proposes its whole rect to every child and then places each at the size it ' +
+    'answered with: a shape or an .expand() fills the stack, a .frame() keeps its own size. ' +
+    'Where that smaller child lands is the align option — centred by default, or pinned to a ' +
+    'corner, which is what turns an .offset() into a position. Panels nest the other way ' +
+    'round: padding then background, over and over, each background painting the box the ' +
     'padding just grew. That is how you get a frame around a frame.',
 
   code: `HStack({ spacing: 20, align: 'center' },
@@ -27,12 +29,12 @@ export const layering: Example = {
         .stroke('#52525b', 1),
     ),
 
-  // The dot keeps its 16px inside the stack,
-  // and is centred there — offset moves it.
-  ZStack(
+  // The dot keeps its 16px inside the stack.
+  // Drop the align and it centres instead.
+  ZStack({ align: 'topLeading' },
     RoundedRect(10).fill('#27272a'),
     Circle().fill('#22c55e').frame(16, 16)
-      .offset(0, -14),
+      .offset(8, 8),
   ).frame(120, 96),
 )`,
 }
